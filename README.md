@@ -52,20 +52,53 @@ npm run dev
 | Cloudflare Access team domain | `your-team.cloudflareaccess.com` |
 | ローカル用 R2 bucket | `your-media-local` |
 | staging 用 R2 bucket | `your-media-staging` |
+| production 用 R2 bucket | `your-media-production` |
 
 staging 設定は初期状態で `STAGING_LOCKED="true"`、`MEDIA_MUTATIONS_ENABLED="false"` です。Cloudflare Access、Worker Secrets、R2 binding を自分の環境で確認するまでは解除しないでください。
 
-`ACCESS_AUD` と `ALLOWED_EMAIL` は `wrangler.jsonc` の `vars` に書かず、Worker Secrets として登録します。ローカルで値が必要な場合は `worker/.dev.vars.example` を `worker/.dev.vars` にコピーし、Git 管理外のファイルだけに設定してください。
+`ACCESS_AUD` と `ALLOWED_EMAILS`（カンマ区切りの管理者メール一覧）は `wrangler.jsonc` の `vars` に書かず、Worker Secrets として登録します。旧設定との互換用に、`ALLOWED_EMAILS` が無い場合だけ単一値の `ALLOWED_EMAIL` も受け付けます。ローカルで値が必要な場合は `worker/.dev.vars.example` を `worker/.dev.vars` にコピーし、Git 管理外のファイルだけに設定してください。
 
 デプロイ前には少なくとも次を確認してください。
 
 - Worker 名、team domain、bucket 名が自分の環境を指している
 - R2 の公開アクセス方針と lifecycle rule が意図どおりである
 - Cloudflare Access の application と policy が有効である
-- `ACCESS_AUD` と `ALLOWED_EMAIL` が Secrets として登録されている
+- `ACCESS_AUD` と `ALLOWED_EMAILS` が Secrets として登録されている
 - `STAGING_LOCKED` と各 mutation switch を開く必要性を個別に確認した
 
 `npm run deploy` は誤操作防止のガードで停止します。staging 用スクリプトも、実行前に設定と差分を確認してください。
+
+## Production Admin Phase A
+
+productionでは、一般公開サイトと管理用SiteManagerを同じWorker上の別hostnameとして扱います。
+
+| host | 用途 | 認証 | 許可する主な経路 |
+|---|---|---|---|
+| `PUBLIC_HOST` | 一般閲覧者向け | 不要 | `/`、`/index.html`、`/media/*`のGET/HEAD |
+| `ADMIN_HOST` | SiteManagerと管理API | Cloudflare Access + Worker JWT | `/admin/*`、`/api/*`、`/media/*`のGET/HEAD |
+
+PUBLICから`/api/*`、`/admin/*`、SiteManager本体へは到達できません。ADMINはredirect、static asset、API、R2読み出しより先にAccess JWTを検証します。設定にないhostnameはfail closedです。
+
+SiteManager本体はリポジトリ直下の`eruremo_SiteManager.html`だけを編集します。production用コピーをソースとしてGit管理しません。一般公開用HTMLと合わせるときは、SiteManagerが生成した`index.html`を`worker/public-site/index.html`へ置き、次を実行します。
+
+```powershell
+cd worker
+npm run build:production-assets
+```
+
+生成先はGit管理外の`worker/production-assets/`です。
+
+```text
+production-assets/
+├─ index.html          一般公開サイト
+└─ admin/index.html    Access保護下のSiteManager
+```
+
+このbuildはファイルコピーだけを行い、deployや外部通信は行いません。`worker/public-site/index.html`が無い場合や、一般公開用HTMLにSiteManagerが混入している場合は失敗します。
+
+> Phase Aでは複数管理者をCloudflare Accessで許可できますが、編集DATAはまだ各ブラウザの`localStorage`に保存されます。ブラウザ間の共有編集、D1保存、権限管理、履歴、競合解決は未対応です。
+
+詳細は[Production Admin Phase A](docs/PRODUCTION_ADMIN_PHASE_A_JA.md)を参照してください。
 
 ## テスト
 
@@ -80,7 +113,7 @@ cd worker
 node --test "test/**/*.test.mjs"
 ```
 
-現在確認済みの内訳は、編集ツール 295 tests、Worker 458 tests、合計 753 tests です。
+現在確認済みの内訳は、編集ツール 298 tests、Worker 498 tests（481 pass、既存の実データ依存17件はskip）、合計 796 tests、fail 0です。
 
 ## セキュリティ上の注意
 
@@ -96,7 +129,7 @@ node --test "test/**/*.test.mjs"
 
 - [初心者向けガイド](docs/BEGINNER_GUIDE_JA.md)
 - [現在の構成](docs/CURRENT_ARCHITECTURE_JA.md)
-- [将来構成](docs/FUTURE_ARCHITECTURE_JA.md)
+- [旧将来構成（Phase 1時点の履歴）](docs/FUTURE_ARCHITECTURE_JA.md)
+- [Production Admin Phase A](docs/PRODUCTION_ADMIN_PHASE_A_JA.md)
 - [R2 仕様](docs/PHASE2_R2_SPEC_JA.md)
 - [テスト計画](docs/TEST_PLAN_JA.md)
-

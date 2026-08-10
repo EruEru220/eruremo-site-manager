@@ -3,6 +3,8 @@
 作成日：2026-08-05 ／ Phase 1
 **状態：設計のみ。今回は一切実装しません。**
 
+> **更新案内**：この文書はPhase 1時点の旧将来案です。Cloudflare PagesとR2カスタムドメインを前提にしたproduction構成は採用せず、現在はPUBLIC/ADMINの2 hostnameと相対`/media/*`を1つのWorkerで扱う[Production Admin Phase A](PRODUCTION_ADMIN_PHASE_A_JA.md)を正とします。次PhaseのD1共有保存候補も同文書に整理しています。
+
 ---
 
 ## 1. 推奨構成の全体像

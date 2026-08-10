@@ -8,6 +8,7 @@
     "test": "node --test \"test/**/*.test.mjs\"",
     "dev": "node scripts/dev-copy-editor.mjs && wrangler dev --local --ip 127.0.0.1 --port 8787",
     "dev:staging": "node scripts/dev-copy-editor.mjs && wrangler dev --local --env staging --ip 127.0.0.1 --port 8788",
+    "build:production-assets": "node scripts/build-production-assets.mjs",
     "deploy": "node scripts/deploy-guard.mjs",
     "deploy:staging": "node scripts/dev-copy-editor.mjs && wrangler deploy --env staging"
   },

@@ -16,7 +16,7 @@ import {
 const TEAM = "example-team.cloudflareaccess.com";
 const AUD = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const EMAIL = "someone@example.invalid";
-const CFG = { teamDomain: TEAM, aud: AUD, email: EMAIL };
+const CFG = { teamDomain: TEAM, aud: AUD, emails: [EMAIL] };
 const NOW = 1_800_000_000;   /* テストの中の「いま」（秒） */
 
 /* ---- base64url ---- */
@@ -82,7 +82,7 @@ const verify = (token, opts = {}) => {
 
 test("設定がそろっていれば読み取れる", () => {
   const cfg = readAccessConfig({ ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAIL: EMAIL });
-  assert.deepEqual(cfg, { teamDomain: TEAM, aud: AUD, email: EMAIL });
+  assert.deepEqual(cfg, { teamDomain: TEAM, aud: AUD, emails: [EMAIL] });
 });
 
 test("設定が1つでも欠けたら null（＝通さない）", () => {
@@ -119,7 +119,36 @@ test("メールアドレスは前後の空白と大文字小文字を吸収す�
   assert.equal(normalizeEmail("  SomeOne@Example.INVALID  "), "someone@example.invalid");
   assert.equal(normalizeEmail(null), "");
   const cfg = readAccessConfig({ ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAIL: " SomeOne@Example.INVALID " });
-  assert.equal(cfg.email, EMAIL);
+  assert.deepEqual(cfg.emails, [EMAIL]);
+});
+
+test("複数の管理者メールを正規化して読み込める", () => {
+  const cfg = readAccessConfig({
+    ACCESS_TEAM_DOMAIN: TEAM,
+    ACCESS_AUD: AUD,
+    ALLOWED_EMAILS: " SomeOne@Example.INVALID, second@example.invalid "
+  });
+  assert.deepEqual(cfg.emails, [EMAIL, "second@example.invalid"]);
+});
+
+test("ALLOWED_EMAILS がある場合は旧 ALLOWED_EMAIL を許可一覧へ混ぜない", () => {
+  const cfg = readAccessConfig({
+    ACCESS_TEAM_DOMAIN: TEAM,
+    ACCESS_AUD: AUD,
+    ALLOWED_EMAILS: "second@example.invalid",
+    ALLOWED_EMAIL: EMAIL
+  });
+  assert.deepEqual(cfg.emails, ["second@example.invalid"]);
+});
+
+test("管理者メール一覧の空要素・重複・過大件数は fail closed", () => {
+  const base = { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD };
+  assert.equal(readAccessConfig({ ...base, ALLOWED_EMAILS: `${EMAIL},` }), null);
+  assert.equal(readAccessConfig({ ...base, ALLOWED_EMAILS: `${EMAIL},${EMAIL.toUpperCase()}` }), null);
+  assert.equal(readAccessConfig({
+    ...base,
+    ALLOWED_EMAILS: Array.from({ length: 51 }, (_, i) => `admin${i}@example.invalid`).join(",")
+  }), null);
 });
 
 test("設定が無ければ、通行証が正しくても通さない", async () => {
@@ -137,6 +166,16 @@ test("正しい通行証は通る", async () => {
   const r = await verify(await makeToken());
   assert.equal(r.ok, true);
   assert.equal(r.email, EMAIL);
+});
+
+test("複数管理者許可一覧の2人目も署名検証後に通る", async () => {
+  const token = await makeToken({ payload: { email: "second@example.invalid" } });
+  resetAccessKeyCache();
+  const r = await verifyAccessJwt(token,
+    { teamDomain: TEAM, aud: AUD, emails: [EMAIL, "second@example.invalid"] },
+    { now: NOW, fetch: makeJwks([KEY_A]) });
+  assert.equal(r.ok, true);
+  assert.equal(r.email, "second@example.invalid");
 });
 
 test("aud が配列でも、その中に入っていれば通る", async () => {

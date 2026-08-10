@@ -3,5 +3,6 @@
 # only; never commit real values.
 
 ACCESS_AUD=
-ALLOWED_EMAIL=
-
+# Comma-separated administrator emails. Legacy single-value ALLOWED_EMAIL is
+# still accepted when ALLOWED_EMAILS is absent.
+ALLOWED_EMAILS=

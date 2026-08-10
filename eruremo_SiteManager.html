@@ -56,6 +56,10 @@ button{cursor:pointer;background:none;border:none}
 .env-badge{font-size:.7rem;font-weight:700;border-radius:99px;padding:5px 12px;white-space:nowrap;
   border:1px solid rgba(255,196,107,.55);background:rgba(255,196,107,.16);color:var(--warn)}
 .env-badge[hidden]{display:none}
+/* Phase A: Web版でも編集DATAはブラウザごと。共有済みと誤解させない常設表示。 */
+.storage-note{display:flex;flex-direction:column;justify-content:center;line-height:1.35;font-size:.66rem;
+  color:var(--dim);white-space:nowrap;border-left:1px solid var(--line);padding-left:12px}
+.storage-note strong{color:var(--ink2);font-size:.69rem}
 @keyframes blink{50%{opacity:.25}}
 
 .meter{display:flex;align-items:center;gap:8px;font-size:.7rem;color:var(--dim);white-space:nowrap}
@@ -330,6 +334,8 @@ button{cursor:pointer;background:none;border:none}
   .topbar{padding:8px 10px;gap:8px}
   .logo em,.logo .v{display:none}
   .meter{display:none}
+  .storage-note{order:98;flex:1 1 100%;border-left:0;border-top:1px solid var(--line);padding:6px 2px 0;
+    flex-direction:row;justify-content:flex-start;gap:14px}
   .search{order:99;max-width:none;flex:1 1 100%}
 }
 </style>
@@ -352,6 +358,11 @@ button{cursor:pointer;background:none;border:none}
     </span>
 
     <span class="env-badge" id="envBadge" hidden></span>
+
+    <span class="storage-note" id="storageMode" title="D1による共有保存は次のフェーズで対応予定です">
+      <strong>現在の保存方式：このブラウザ内</strong>
+      <span>共有編集：未対応</span>
+    </span>
 
     <span class="search">
       <input type="search" id="search" placeholder="項目を検索…（Ctrl+F）" autocomplete="off" aria-label="項目を検索">

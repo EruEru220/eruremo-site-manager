@@ -39,6 +39,28 @@ const JWKS_MIN_REFETCH_MS = 30 * 1000;
 
 const str = v => (v == null ? "" : String(v));
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_ALLOWED_EMAILS = 50;
+
+function readAllowedEmails(env){
+  const plural = str(env && env.ALLOWED_EMAILS).trim();
+  const legacy = str(env && env.ALLOWED_EMAIL).trim();
+  const rawValues = plural ? plural.split(",") : legacy ? [legacy] : [];
+
+  if (!rawValues.length || rawValues.length > MAX_ALLOWED_EMAILS) return null;
+  if (plural.length > 16_000) return null;
+
+  const emails = [];
+  const seen = new Set();
+  for (const raw of rawValues) {
+    const email = normalizeEmail(raw);
+    if (!email || email.length > 320 || !EMAIL_RE.test(email) || seen.has(email)) return null;
+    seen.add(email);
+    emails.push(email);
+  }
+  return emails;
+}
+
 /**
  * 設定がそろっているかを見て、そろっていれば取り出す。
  * 1つでも欠けていたら null を返す（＝通さない）。
@@ -46,15 +68,15 @@ const str = v => (v == null ? "" : String(v));
 export function readAccessConfig(env){
   const teamDomain = str(env && env.ACCESS_TEAM_DOMAIN).trim().toLowerCase();
   const aud        = str(env && env.ACCESS_AUD).trim();
-  const email      = normalizeEmail(str(env && env.ALLOWED_EMAIL));
+  const emails     = readAllowedEmails(env);
 
   if (!TEAM_DOMAIN_RE.test(teamDomain)) return null;
   /* AUD（どのアプリ向けの通行証か）は空白を含まない適度な長さの文字列 */
   if (!aud || aud.length > 256 || /\s/.test(aud)) return null;
   /* 許可するメールアドレス（形が明らかにおかしいものは弾く） */
-  if (!email || email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  if (!emails) return null;
 
-  return { teamDomain, aud, email };
+  return { teamDomain, aud, emails };
 }
 
 /** メールアドレスの表記ゆれを吸収する（前後の空白を取り、小文字にそろえる） */
@@ -218,7 +240,7 @@ export async function verifyAccessJwt(token, cfg, opts = {}){
   /* --- 許可したメールアドレスか（大文字小文字・前後の空白を吸収） --- */
   const email = normalizeEmail(payload.email);
   if (!email) return deny("NO_EMAIL");
-  if (email !== cfg.email) return deny("BAD_EMAIL");
+  if (!Array.isArray(cfg.emails) || !cfg.emails.includes(email)) return deny("BAD_EMAIL");
 
   return { ok: true, email };
 }

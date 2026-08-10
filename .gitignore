@@ -37,6 +37,13 @@ index.html
 photos.zip
 photos/
 
+# production 配信用の入力と組み立て結果。
+# public-site/index.html は SiteManager が生成するイベント固有の成果物、
+# production-assets/ は build:production-assets が作る一時的な配信物です。
+worker/public-site/index.html
+worker/production-assets/
+worker/production-assets.tmp-*/
+
 # ただし Worker の管理画面はソースなので、コミットする（Phase 2-1 で追記）
 !worker/public/index.html
 

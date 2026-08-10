@@ -13,6 +13,7 @@ import { readWranglerConfig, stripJsonc } from "./helpers/wranglerConfig.mjs";
 
 const cfg = readWranglerConfig();
 const stg = cfg.env && cfg.env.staging;
+const prod = cfg.env && cfg.env.production;
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const scripts = pkg.scripts || {};
@@ -107,14 +108,14 @@ test("ステージングのバケットは、本番ともローカルとも別�
 });
 
 test("バケット名を省略していない（省略すると自動で作られてしまう）", () => {
-  for (const b of stg.r2_buckets) {
+  for (const b of [...stg.r2_buckets, ...((prod && prod.r2_buckets) || [])]) {
     assert.equal(typeof b.bucket_name, "string");
     assert.ok(b.bucket_name.length > 0, "bucket_name を必ず書いてください");
   }
 });
 
 test("R2 の危ない設定を書いていない", () => {
-  for (const b of [...(stg.r2_buckets || []), ...(cfg.r2_buckets || [])]) {
+  for (const b of [...(stg.r2_buckets || []), ...((prod && prod.r2_buckets) || []), ...(cfg.r2_buckets || [])]) {
     /* remote: true はローカル実行から本物の R2 につないでしまう */
     assert.equal("remote" in b, false, "remote は使いません");
     assert.equal("preview_bucket_name" in b, false, "preview_bucket_name は使いません");
@@ -160,17 +161,77 @@ test("チームの住所が正しいかたちで書かれている", () => {
   assert.equal(stg.vars.ACCESS_TEAM_DOMAIN, "your-team.cloudflareaccess.com");
 });
 
-test("ACCESS_AUD と ALLOWED_EMAIL は vars に書かない（Secret で登録する）", () => {
+test("Access の audience と管理者メールは vars に書かない（Secret で登録する）", () => {
   /* vars に同じ名前があると、デプロイのたびに vars 側の値で上書きされ、
      Secret が効かなくなります。値そのものを Git に残さないためでもあります。 */
   assert.equal("ACCESS_AUD" in stg.vars, false,
     "ACCESS_AUD は wrangler secret put で登録してください");
   assert.equal("ALLOWED_EMAIL" in stg.vars, false,
     "ALLOWED_EMAIL は wrangler secret put で登録してください");
+  assert.equal("ALLOWED_EMAILS" in stg.vars, false,
+    "ALLOWED_EMAILS は wrangler secret put で登録してください");
+  assert.equal("ACCESS_AUD" in prod.vars, false,
+    "production の ACCESS_AUD は wrangler secret put で登録してください");
+  assert.equal("ALLOWED_EMAIL" in prod.vars, false,
+    "production の ALLOWED_EMAIL は wrangler secret put で登録してください");
+  assert.equal("ALLOWED_EMAILS" in prod.vars, false,
+    "production の ALLOWED_EMAILS は wrangler secret put で登録してください");
 });
 
 /* ================================================================
-   4. ステージングをローカルで模擬するスクリプト（npm run dev:staging）
+   4. production - public/admin host separation
+   ================================================================ */
+
+test("production環境があり、独自nameや公開preview URLを作らない", () => {
+  assert.ok(prod, "env.production がありません");
+  assert.equal("name" in prod, false, "env.production に name を重ねて書かないでください");
+  assert.equal(prod.workers_dev, false);
+  assert.equal(prod.preview_urls, false);
+  for (const key of ["route", "routes", "custom_domain", "custom_domains"]) {
+    assert.equal(key in prod, false, `env.production に ${key} があります`);
+  }
+});
+
+test("production assetsは生成専用directoryを必ずWorker経由で配信する", () => {
+  assert.equal(prod.assets.directory, "./production-assets/");
+  assert.equal(prod.assets.binding, "ASSETS");
+  assert.equal(prod.assets.run_worker_first, true,
+    "PUBLIC/ADMIN分離より前にassetを返してはいけません");
+});
+
+test("production R2はlocal/stagingとは別の専用bucket", () => {
+  assert.equal(prod.r2_buckets.length, 1);
+  assert.equal(prod.r2_buckets[0].binding, "MEDIA_BUCKET");
+  assert.equal(prod.r2_buckets[0].bucket_name, "your-media-production");
+  assert.notEqual(prod.r2_buckets[0].bucket_name, stg.r2_buckets[0].bucket_name);
+  assert.notEqual(prod.r2_buckets[0].bucket_name, cfg.r2_buckets[0].bucket_name);
+});
+
+test("production hostはscheme等を含まない別々のgeneric hostname", () => {
+  assert.equal(prod.vars.PUBLIC_HOST, "www.example.com");
+  assert.equal(prod.vars.ADMIN_HOST, "admin.example.com");
+  assert.notEqual(prod.vars.PUBLIC_HOST, prod.vars.ADMIN_HOST);
+  const hostname = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
+  assert.match(prod.vars.PUBLIC_HOST, hostname);
+  assert.match(prod.vars.ADMIN_HOST, hostname);
+});
+
+test("productionは相対/mediaを使い、mutationを初期状態で閉じる", () => {
+  assert.equal(prod.vars.ENVIRONMENT, "production");
+  assert.equal(prod.vars.PUBLIC_MEDIA_BASE_URL, "");
+  assert.equal(prod.vars.MEDIA_MUTATIONS_ENABLED, "false");
+  assert.equal(prod.vars.MIGRATION_CANARY_MUTATION_ENABLED, "false");
+  assert.equal(prod.vars.MIGRATION_BATCH_MUTATION_ENABLED, "false");
+  assert.equal("STAGING_LOCKED" in prod.vars, false,
+    "productionの公開制御をstaging lockと混同しないでください");
+});
+
+test("productionもAccess team domainだけを公開変数に置く", () => {
+  assert.equal(prod.vars.ACCESS_TEAM_DOMAIN, "your-team.cloudflareaccess.com");
+});
+
+/* ================================================================
+   5. ステージングをローカルで模擬するスクリプト（npm run dev:staging）
 
    このスクリプトは「Cloudflare につながずにステージング設定を試す」ための
    ものです。書きまちがえると本物の Cloudflare につないでしまうため、
@@ -257,8 +318,9 @@ test("設定ファイルに秘密情報・個人情報が書かれていない",
     assert.equal(/^[A-Za-z0-9_-]{32,}$/.test(v), false, `トークンらしき値があります: ${v}`);
   }
   /* Secret で入れる約束のものが、vars に現れてはいけない */
-  for (const key of ["ALLOWED_EMAIL", "ACCESS_AUD", "GITHUB_TOKEN", "API_TOKEN"]) {
+  for (const key of ["ALLOWED_EMAIL", "ALLOWED_EMAILS", "ACCESS_AUD", "GITHUB_TOKEN", "API_TOKEN"]) {
     assert.equal(key in stg.vars, false, `${key} は wrangler secret put で入れてください`);
+    assert.equal(key in prod.vars, false, `${key} は production でも Secret で入れてください`);
     assert.equal(key in (cfg.vars || {}), false, `${key} は wrangler secret put で入れてください`);
   }
 });

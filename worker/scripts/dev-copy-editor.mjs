@@ -16,7 +16,8 @@
        二重管理にはなりません。
      - 本体を編集したら、このコピーをやり直す必要があります
        （`npm run dev` を実行し直せば自動でコピーされます）。
-     - 本番へは持っていきません。ローカルで動作を確かめるためだけの仕組みです。
+     - このコピーは本番へ持っていきません。productionでは別の安全なbuild工程が、
+       ルートの本体を production-assets/admin/index.html へコピーします。
    ================================================================ */
 import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";

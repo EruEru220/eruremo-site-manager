@@ -3,6 +3,8 @@
 対象：改変喫茶えるれも / ERUREMO サイト編集ツール
 作成日：2026-08-05
 
+> **現在のproduction方針について**：この文書は初期Phase計画の履歴です。productionの公開サイト・管理画面・`/media/*`を同一Workerの別hostnameで分離する現在のPhase A設計は、[PRODUCTION_ADMIN_PHASE_A_JA.md](PRODUCTION_ADMIN_PHASE_A_JA.md)を正とします。
+
 ## 最終的なゴール
 
 | 用途 | ドメイン | 実体 |
