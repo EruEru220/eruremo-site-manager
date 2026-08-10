@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ERUREMO 管理画面</title>
+<style>
+  :root{ color-scheme: light dark; }
+  body{ margin:0; padding:2rem 1.25rem; font-family:system-ui,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif;
+        line-height:1.9; max-width:44rem; margin-inline:auto; }
+  h1{ font-size:1.35rem; margin:0 0 .3rem; }
+  .sub{ opacity:.7; font-size:.9rem; margin:0 0 1.6rem; }
+  .card{ border:1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius:12px;
+         padding:1rem 1.1rem; margin:0 0 1rem; }
+  code{ background:color-mix(in srgb, currentColor 10%, transparent); padding:.1em .4em; border-radius:5px; }
+  button{ font:inherit; padding:.5rem 1.1rem; border-radius:9px; cursor:pointer;
+          border:1px solid color-mix(in srgb, currentColor 30%, transparent); background:transparent; color:inherit; }
+  pre{ background:color-mix(in srgb, currentColor 8%, transparent); padding:.8rem; border-radius:9px;
+       overflow-x:auto; font-size:.85rem; margin:.7rem 0 0; }
+  ul{ padding-left:1.3rem; }
+  /* 環境の帯。ステージングと本番を取り違えないための表示。 */
+  .badge{ display:inline-block; font-size:.78rem; font-weight:700; border-radius:99px;
+          padding:.15rem .8rem; margin:0 0 .8rem; }
+  .badge.staging{ background:rgba(255,196,107,.18); color:#a4700f;
+                  border:1px solid rgba(255,196,107,.6); }
+  .badge.unknown{ background:color-mix(in srgb, currentColor 8%, transparent);
+                  border:1px solid color-mix(in srgb, currentColor 25%, transparent); opacity:.8; }
+  .card.warn{ border-color:rgba(255,196,107,.6); background:rgba(255,196,107,.08); }
+  [hidden]{ display:none !important; }
+</style>
+</head>
+<body>
+
+  <!-- 環境が分かるまでは、どの環境の説明も出しません（誤解を招かないため） -->
+  <span class="badge unknown" id="badgeUnknown">環境を確認しています…</span>
+  <span class="badge staging" id="badgeStaging" hidden>🟠 ステージング（非公開）</span>
+
+  <h1 id="title">ERUREMO 管理画面</h1>
+  <p class="sub" id="sub">環境を確認しています…</p>
+
+  <!-- ================= ステージング ================= -->
+  <div class="card warn" data-only="staging" hidden>
+    <strong>ここはステージング（確認用の非公開環境）です</strong>
+    <ul>
+      <li>Cloudflare Access で保護された、<strong>自分だけが見られる確認用の環境</strong>です。</li>
+      <li>公開サイトではありません。ここでの変更が公開サイトに出ることはありません。</li>
+      <li><strong>R2（画像の保管庫）は接続済みです。</strong></li>
+      <li><strong>現在、画像の書き込み・削除は安全のため停止しています。</strong></li>
+      <li><strong>画像一覧・読み出しのみ利用できます。</strong></li>
+    </ul>
+  </div>
+
+  <!-- ================= ローカル ================= -->
+  <div class="card" data-only="local" hidden>
+    <strong>ここはローカル開発用の画面です</strong>
+    <ul>
+      <li>自分のパソコンの中だけで動いています。</li>
+      <li>本番の Cloudflare・R2 にはつながっていません。</li>
+      <li>画像は <code>worker/.wrangler/state/</code> の中に保存されます。</li>
+    </ul>
+  </div>
+
+  <!-- ================= 環境が分からないとき ================= -->
+  <div class="card" data-only="unknown" hidden>
+    <strong>環境を確認できませんでした</strong>
+    <ul>
+      <li><code>/api/health</code> に応答がないため、どの環境かを判断できません。</li>
+      <li>どの環境か分かるまで、<strong>画像のアップロード・削除・移行は行わないでください。</strong></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <strong>編集ツールをひらく</strong>
+    <p style="margin:.3rem 0 .7rem">
+      <a href="/eruremo_SiteManager.html">eruremo_SiteManager.html</a>
+    </p>
+    <p style="margin:.4rem 0 0; font-size:.88rem; opacity:.8" data-only="local" hidden>
+      ここから開くと、画像が自動でローカルR2へ保存されます（同じ住所なので通信できます）。
+      ファイルをダブルクリックして開いた場合は、今までどおり画像が HTML の中に
+      埋め込まれます（どちらでも作業できます）。
+    </p>
+    <p style="margin:.4rem 0 0; font-size:.88rem; opacity:.8" data-only="staging" hidden>
+      画面の見た目や操作の確認に使えます。保管庫への書き込みを止めているので、
+      画像を選ぶと「保管庫に保存できません」と表示され、これまでどおり
+      HTML の中に埋め込まれます。すでに保管庫にある画像は、一覧でも表示でも見られます。
+    </p>
+  </div>
+
+  <div class="card">
+    <strong>いまできること</strong>
+    <ul>
+      <li><code>GET /api/health</code> — 疎通確認</li>
+      <li><code>POST /api/media/upload</code> — 画像アップロード</li>
+      <li><code>GET /api/media</code> — 保管庫の画像一覧</li>
+      <li><code>DELETE /api/media/item</code> — 画像を1枚削除</li>
+      <li><code>GET /media/…</code> — 保存した画像の読み出し</li>
+    </ul>
+    <p style="margin:.4rem 0 0; font-size:.88rem; opacity:.8" data-only="staging" hidden>
+      ステージングでは、<strong>読み出し（一覧・画像）は使えます</strong>が、
+      <strong>書き込み（アップロード・削除）は停止中</strong>です。
+      止まっている間は保管庫に一切アクセスしません。
+    </p>
+  </div>
+
+  <div class="card">
+    <strong>疎通確認</strong>
+    <p style="margin:.3rem 0 .7rem">押すと <code>/api/health</code> を呼びます。</p>
+    <button id="btn" type="button">/api/health を確認する</button>
+    <pre id="out">（まだ確認していません）</pre>
+  </div>
+
+<script>
+/* 表示をどの環境向けに切り替えるか。
+   分からないときは "unknown" にして、ローカル向けの説明を出しません
+   （ステージングで「ローカル専用」と書いてあると誤解を招くため）。 */
+function applyEnv(name){
+  const env = (name === "local" || name === "staging") ? name : "unknown";
+
+  document.querySelectorAll("[data-only]").forEach(el => {
+    el.hidden = el.dataset.only !== env;
+  });
+
+  const badgeStaging = document.getElementById("badgeStaging");
+  const badgeUnknown = document.getElementById("badgeUnknown");
+  const title = document.getElementById("title");
+  const sub = document.getElementById("sub");
+
+  if (env === "staging") {
+    badgeStaging.hidden = false;
+    badgeUnknown.hidden = true;
+    document.title = "ERUREMO ステージング管理画面";
+    title.textContent = "ERUREMO ステージング管理画面";
+    sub.textContent = "Cloudflare Access で保護された非公開の確認環境です。";
+  } else if (env === "local") {
+    badgeStaging.hidden = true;
+    badgeUnknown.hidden = true;
+    document.title = "ERUREMO 管理画面（ローカル）";
+    title.textContent = "ERUREMO 管理画面";
+    sub.textContent = "ローカル開発用の入口です。";
+  } else {
+    badgeStaging.hidden = true;
+    badgeUnknown.hidden = false;
+    badgeUnknown.textContent = "環境が分かりません";
+    title.textContent = "ERUREMO 管理画面";
+    sub.textContent = "環境を確認できませんでした。";
+  }
+}
+
+/* 環境を確かめる。
+   はじめは null（＝分からない）にしておき、
+   **はっきり分かったときだけ**名前を入れます。
+   応答が無い・ok でない・例外、どの場合も null のままです。 */
+async function detectEnv(){
+  let name = null;
+  try {
+    const res = await fetch("/api/health", { headers: { "accept": "application/json" } });
+    if (res.ok) {
+      const body = await res.json();
+      if (body && body.ok === true) name = body.environment;
+    }
+  } catch (e) {
+    name = null;
+  }
+  applyEnv(name);
+}
+
+document.getElementById("btn").addEventListener("click", async () => {
+  const out = document.getElementById("out");
+  out.textContent = "確認中…";
+  try {
+    const res = await fetch("/api/health", { headers: { "accept": "application/json" } });
+    out.textContent = res.status + " " + res.statusText + "\n" + JSON.stringify(await res.json(), null, 2);
+  } catch (e) {
+    out.textContent = "つながりませんでした。";
+  }
+});
+
+detectEnv();
+</script>
+</body>
+</html>

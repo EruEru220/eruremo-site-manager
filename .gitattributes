@@ -1,0 +1,33 @@
+# ==========================================================
+#  改行コードの扱い
+#
+#  このPCの Git は core.autocrlf = true になっています。
+#  そのままだと、将来 git checkout したときに HTML の改行が
+#  LF から CRLF に書き換えられ、
+#  元ファイルのバイト数と SHA-256 が変わってしまいます。
+#
+#  対象HTMLは LF・UTF-8(BOMなし)・2,110,402バイトが正です。
+#  下の設定で、Git による改行変換を完全に無効化して
+#  バイト単位で同一の状態を保ちます。
+# ==========================================================
+
+# 既定：リポジトリ内は LF で保持する
+* text=auto eol=lf
+
+# HTML は一切変換しない（バイト列をそのまま保つ）
+*.html -text
+*.htm  -text
+
+# 文書類は LF で保持
+*.md   text eol=lf
+*.json text eol=lf
+*.js   text eol=lf
+*.toml text eol=lf
+
+# バイナリ
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.zip  binary
+*.ico  binary

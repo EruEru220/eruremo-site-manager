@@ -1,0 +1,8 @@
+{
+  "note": "旧方式（v1）の lock。互換性を守るための固定データ。作り直さないこと。",
+  "format": "btoa(iv12 ++ AES-GCM(SHA-256(password)))",
+  "createdWith": "eruremo_SiteManager.html の lockUrl()（v2 化する前のもの）",
+  "url": "https://example.invalid/gift/legacy-fixture",
+  "password": "テスト用あいことば",
+  "lock": "rfv8mfI5FrAxg5MMvCSA0AXN/7zvTc8/zVNEL4QVctXqvAHL6zH/CSYt8qUkjtvCcNKkrm8iYACjM8G49r6eJaTp92WMsII="
+}

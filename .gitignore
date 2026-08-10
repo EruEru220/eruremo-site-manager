@@ -1,0 +1,82 @@
+# ==========================================================
+#  ERUREMO SiteManager — .gitignore
+#  Phase 1 で作成。秘密情報を絶対にコミットしないための設定。
+# ==========================================================
+
+# --- 依存パッケージ・ビルド成果物 ---
+node_modules/
+dist/
+
+# --- 秘密情報（絶対にコミットしない） ---
+.dev.vars
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+
+# --- Cloudflare Wrangler ---
+.wrangler/
+.wrangler
+
+# --- ログ・一時ファイル ---
+*.log
+temp/
+tmp/
+
+# --- OS が作るファイル ---
+.DS_Store
+Thumbs.db
+
+# ==========================================================
+#  ここから下は、このプロジェクト固有の追加設定
+# ==========================================================
+
+# 生成物（編集ツールが出力するもの。ソースではない）
+index.html
+photos.zip
+photos/
+
+# ただし Worker の管理画面はソースなので、コミットする（Phase 2-1 で追記）
+!worker/public/index.html
+
+# ローカル開発用のコピー（Phase 2-2 で追記）
+#   `npm run dev` が本体を worker/public/ へ複製します。
+#   本体は <project-root>\eruremo_SiteManager.html の1つだけ。
+#   このコピーは Git に入れません（二重管理を避けるため）。
+worker/public/eruremo_SiteManager.html
+
+# 個人のバックアップ置き場（合言葉が平文で入るため）
+backup/
+*.local.json
+
+# ステージングへ運ぶ移行パッケージ（Phase 4.5 で追記）
+#   worker/scripts/build-migration-package.mjs が作ります。
+#   画像そのものが入って数MBになるため、Git には入れません。
+#   作り直せるので、消えても困りません。
+worker/migration-package.json
+worker/scripts/migration-input.local.json
+
+# 監査用の置き場（Phase 5 で追記）
+#   いまは <private-audit-root>（プロジェクトの外）に置いていますが、
+#   将来うっかりプロジェクトの中に作っても Git に入らないようにしておきます。
+*_audit/
+eruremo_private_audit/
+
+# 編集ツールが書き出す .json（合言葉が平文で入るため。Phase 5 で追記）
+#   backup/ の外に置いてしまったときの保険です。
+elremo-project*.json
+
+# 鍵・証明書（Phase 5 で追記。いま持っていなくても、置いた瞬間に守るため）
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+
+# エディタ設定
+.vscode/
+.idea/
+*.swp
+*~
+.claude/settings.local.json

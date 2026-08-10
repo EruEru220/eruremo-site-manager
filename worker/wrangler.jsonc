@@ -1,0 +1,89 @@
+// ERUREMO SiteManager - Cloudflare Worker public example configuration
+//
+// Replace only the generic placeholders with identifiers from your own account.
+// Never put API tokens, Access audience values, allowed email addresses, account
+// IDs, access keys, or other secrets in this file. Use Worker Secrets or the
+// gitignored worker/.dev.vars file.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  // Generic Worker name. Wrangler appends "-staging" for env.staging.
+  "name": "your-worker-name",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+
+  // The top-level environment is local-only and creates no public workers.dev URL.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  "assets": {
+    "directory": "./public/",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/media/*"]
+  },
+
+  // Used by wrangler dev --local. Do not point local development at a remote bucket.
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "your-media-local"
+    }
+  ],
+
+  "vars": {
+    "ENVIRONMENT": "local",
+    "PUBLIC_MEDIA_BASE_URL": "http://127.0.0.1:8787",
+    "MEDIA_MUTATIONS_ENABLED": "true",
+    "MIGRATION_CANARY_MUTATION_ENABLED": "false",
+    "MIGRATION_BATCH_MUTATION_ENABLED": "false"
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  "env": {
+    "staging": {
+      // This environment can have a workers.dev URL, but the application remains
+      // fail-closed while STAGING_LOCKED is anything other than exactly "false".
+      "workers_dev": true,
+      "preview_urls": false,
+
+      // Keep all staging requests behind the Worker so the access guard runs for
+      // the admin page, API, media, and static assets.
+      "assets": {
+        "directory": "./public/",
+        "binding": "ASSETS",
+        "run_worker_first": true
+      },
+
+      "r2_buckets": [
+        {
+          "binding": "MEDIA_BUCKET",
+          "bucket_name": "your-media-staging"
+        }
+      ],
+
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "PUBLIC_MEDIA_BASE_URL": "",
+
+        // Public example defaults: deny all staging traffic and all mutations.
+        "STAGING_LOCKED": "true",
+        "MEDIA_MUTATIONS_ENABLED": "false",
+        "MIGRATION_CANARY_MUTATION_ENABLED": "false",
+        "MIGRATION_BATCH_MUTATION_ENABLED": "false",
+
+        // Public, non-secret team hostname. Replace with your own team domain.
+        "ACCESS_TEAM_DOMAIN": "your-team.cloudflareaccess.com"
+
+        // ACCESS_AUD and ALLOWED_EMAIL must be Worker Secrets, not vars.
+      },
+
+      "observability": {
+        "enabled": true
+      }
+    }
+  }
+}
+

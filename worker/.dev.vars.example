@@ -1,0 +1,7 @@
+# Copy this file to worker/.dev.vars only when local Access testing needs it.
+# Keep worker/.dev.vars out of Git. This example intentionally contains names
+# only; never commit real values.
+
+ACCESS_AUD=
+ALLOWED_EMAIL=
+
