@@ -1849,6 +1849,67 @@ function buildJsonLd(d){
   return JSON.stringify({"@context":"https://schema.org","@graph":graph}).replace(/<\/script/gi,"<\\/script");
 }
 
+const STAFF_LAYOUT_CSS=`<style id="staff-layout-balance">
+.staff-row{
+  grid-template-columns:minmax(0,2fr) minmax(0,3fr);
+  grid-template-areas:"photo info";
+}
+.staff-row.flip{
+  grid-template-columns:minmax(0,3fr) minmax(0,2fr);
+  grid-template-areas:"info photo";
+}
+.staff-row .s-photo-col,
+.staff-row.flip .s-photo-col{
+  grid-area:photo;
+  order:0;
+  width:100%;
+  max-width:320px;
+  justify-self:center;
+}
+.staff-row .s-info,
+.staff-row.flip .s-info{
+  grid-area:info;
+  order:0;
+  min-width:0;
+  width:100%;
+}
+.staff-row .s-photo,
+.staff-row .s-ph{
+  display:block;
+  width:100%;
+  aspect-ratio:3/4;
+}
+.staff-row .s-photo{
+  object-fit:cover;
+  object-position:center;
+}
+.staff-row .staff-name{overflow-wrap:anywhere}
+.staff-row .staff-msg{width:100%}
+@media (max-width:680px){
+  .staff-row,
+  .staff-row.flip{
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"photo" "info";
+  }
+  .staff-row .s-photo-col,
+  .staff-row.flip .s-photo-col{
+    width:100%;
+    max-width:min(78vw,260px);
+    margin:0 auto;
+  }
+  .staff-row .s-info,
+  .staff-row.flip .s-info{text-align:center}
+  .staff-row .staff-msg,
+  .staff-row.flip .staff-msg{text-align:left}
+}
+</style>`;
+
+function injectStaffLayoutCss(html){
+  const closingHead="</head>";
+  if(typeof html!=="string"||!html.includes(closingHead)) return html;
+  return html.replace(closingHead,STAFF_LAYOUT_CSS+closingHead);
+}
+
 async function buildHtml(){
   const data=JSON.parse(JSON.stringify(DATA));  /* 書き出し用のコピー */
 
@@ -1889,7 +1950,7 @@ async function buildHtml(){
   if(!og) twExtra+=`<meta name="twitter:card" content="summary">`;
   if(data.seo?.favicon) fav=`<link rel="icon" href="${escAttr(data.seo.favicon)}">`;
 
-  let out=TEMPLATE;
+  let out=injectStaffLayoutCss(TEMPLATE);
   out=repl(out,"__PAGE_TITLE__", escAttr(title));
   out=repl(out,"__PAGE_DESC__",  escAttr(desc));
   out=repl(out,"__THEME_COLOR__",escAttr(data.theme?.night||"#0f0e26"));
