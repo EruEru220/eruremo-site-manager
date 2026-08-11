@@ -33,8 +33,11 @@ function productionEnv(bucket, overrides = {}){
       fetch: async request => {
         const path = new URL(request.url).pathname;
         assetCalls.push({ path, method: request.method });
+        if (path === "/admin/index.html") {
+          return Response.redirect(`https://${ADMIN}/admin/`, 307);
+        }
         const content = path === "/index.html" ? "PUBLIC INDEX"
-          : path === "/admin/index.html" ? "ADMIN SITE MANAGER"
+          : path === "/admin/" ? "ADMIN SITE MANAGER"
           : `ADMIN ASSET ${path}`;
         return new Response(request.method === "HEAD" ? null : content, {
           status: 200,
@@ -214,7 +217,17 @@ test("認証済みADMINの /admin/ は生成コピーのSiteManagerを返す", a
   const worker = createWorker({ accessCheck: allowedAccess });
   const res = await worker.fetch(request(ADMIN, "/admin/"), env);
   assert.equal(res.status, 200);
+  assert.equal(res.headers.get("location"), null);
   assert.equal(await res.text(), "ADMIN SITE MANAGER");
+  assert.deepEqual(env._assetCalls, [{ path: "/admin/", method: "GET" }]);
+});
+
+test("認証済みADMINの /admin/index.html はAssetsのcanonical redirectを返す", async () => {
+  const env = productionEnv(createMockR2());
+  const worker = createWorker({ accessCheck: allowedAccess });
+  const res = await worker.fetch(request(ADMIN, "/admin/index.html"), env);
+  assert.equal(res.status, 307);
+  assert.equal(res.headers.get("location"), `https://${ADMIN}/admin/`);
   assert.deepEqual(env._assetCalls, [{ path: "/admin/index.html", method: "GET" }]);
 });
 

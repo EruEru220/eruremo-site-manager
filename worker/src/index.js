@@ -177,8 +177,7 @@ async function handleAdminProduction(request, env, path, accessCheck){
   if (isApiPath(normalized)) return serveApi(request, normalized, env);
 
   if (!methodIsRead || !path.startsWith("/admin/")) return jsonError("NOT_FOUND");
-  const assetPath = path === "/admin/" ? "/admin/index.html" : path;
-  return serveAsset(request, env, assetPath);
+  return serveAsset(request, env, path);
 }
 
 async function handleProduction(request, env, accessCheck){
