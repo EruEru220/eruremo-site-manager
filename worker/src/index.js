@@ -147,7 +147,9 @@ async function handlePublicProduction(request, env, path){
     return jsonError("NOT_FOUND");
   }
   if (path === "/" || path === "/index.html") {
-    return serveAsset(request, env, "/index.html");
+    /* Keep the browser-visible path intact. Rewriting "/" to "/index.html"
+       makes Static Assets canonicalize it back to "/", creating a loop. */
+    return serveAsset(request, env);
   }
   if (path.startsWith("/media/")) return serveMedia(request, trimTrailingSlash(path), env);
   return jsonError("NOT_FOUND");

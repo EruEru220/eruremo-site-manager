@@ -36,7 +36,10 @@ function productionEnv(bucket, overrides = {}){
         if (path === "/admin/index.html") {
           return Response.redirect(`https://${ADMIN}/admin/`, 307);
         }
-        const content = path === "/index.html" ? "PUBLIC INDEX"
+        if (path === "/index.html") {
+          return Response.redirect(`https://${PUBLIC}/`, 307);
+        }
+        const content = path === "/" ? "PUBLIC INDEX"
           : path === "/admin/" ? "ADMIN SITE MANAGER"
           : `ADMIN ASSET ${path}`;
         return new Response(request.method === "HEAD" ? null : content, {
@@ -114,7 +117,8 @@ test("PUBLIC GET / は public index だけを返す", async () => {
   const res = await worker.fetch(request(PUBLIC), env);
   assert.equal(res.status, 200);
   assert.equal(await res.text(), "PUBLIC INDEX");
-  assert.deepEqual(env._assetCalls, [{ path: "/index.html", method: "GET" }]);
+  assert.equal(res.headers.get("location"), null);
+  assert.deepEqual(env._assetCalls, [{ path: "/", method: "GET" }]);
 });
 
 test("PUBLIC HEAD / は public index のHEADとして処理する", async () => {
@@ -122,15 +126,17 @@ test("PUBLIC HEAD / は public index のHEADとして処理する", async () => 
   const res = await createWorker().fetch(request(PUBLIC, "/", { method: "HEAD" }), env);
   assert.equal(res.status, 200);
   assert.equal(await res.text(), "");
-  assert.deepEqual(env._assetCalls, [{ path: "/index.html", method: "HEAD" }]);
+  assert.equal(res.headers.get("location"), null);
+  assert.deepEqual(env._assetCalls, [{ path: "/", method: "HEAD" }]);
 });
 
-test("PUBLIC GET/HEAD /index.html を許可する", async () => {
+test("PUBLIC GET/HEAD /index.html はAssetsのcanonical redirectを返す", async () => {
   const env = productionEnv(createMockR2());
   const worker = createWorker();
   for (const method of ["GET", "HEAD"]) {
     const res = await worker.fetch(request(PUBLIC, "/index.html", { method }), env);
-    assert.equal(res.status, 200, method);
+    assert.equal(res.status, 307, method);
+    assert.equal(res.headers.get("location"), `https://${PUBLIC}/`, method);
   }
   assert.deepEqual(env._assetCalls.map(x => x.path), ["/index.html", "/index.html"]);
 });
