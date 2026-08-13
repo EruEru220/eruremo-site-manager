@@ -13,6 +13,7 @@ ERUREMO SiteManager は、サイトの内容をブラウザで編集し、公開
 - プロジェクト JSON の読み書きとローカル保存
 - 公開用 HTML の生成
 - gift URL を合言葉で保護する gift lock
+- Cloudflare D1、Turnstile、Worker APIを使う共有掲示板
 
 新しく生成する gift lock は v2 形式です。鍵導出には PBKDF2-HMAC-SHA256（600,000 iterations）、暗号化には AES-GCM（256-bit key）を使用します。旧形式の legacy lock も復号できるため、既存データとの互換性があります。
 
@@ -53,10 +54,11 @@ npm run dev
 | ローカル用 R2 bucket | `your-media-local` |
 | staging 用 R2 bucket | `your-media-staging` |
 | production 用 R2 bucket | `your-media-production` |
+| D1 database | `your-board-local` / `your-board-staging` / `your-board-production` |
 
 staging 設定は初期状態で `STAGING_LOCKED="true"`、`MEDIA_MUTATIONS_ENABLED="false"` です。Cloudflare Access、Worker Secrets、R2 binding を自分の環境で確認するまでは解除しないでください。
 
-`ACCESS_AUD` と `ALLOWED_EMAILS`（カンマ区切りの管理者メール一覧）は `wrangler.jsonc` の `vars` に書かず、Worker Secrets として登録します。旧設定との互換用に、`ALLOWED_EMAILS` が無い場合だけ単一値の `ALLOWED_EMAIL` も受け付けます。ローカルで値が必要な場合は `worker/.dev.vars.example` を `worker/.dev.vars` にコピーし、Git 管理外のファイルだけに設定してください。
+`ACCESS_AUD`、`ALLOWED_EMAILS`（カンマ区切りの管理者メール一覧）、`TURNSTILE_SECRET_KEY`、`BOARD_RATE_LIMIT_SECRET` は `wrangler.jsonc` の `vars` に書かず、Worker Secrets として登録します。旧設定との互換用に、`ALLOWED_EMAILS` が無い場合だけ単一値の `ALLOWED_EMAIL` も受け付けます。ローカルで値が必要な場合は `worker/.dev.vars.example` を `worker/.dev.vars` にコピーし、Git 管理外のファイルだけに設定してください。
 
 デプロイ前には少なくとも次を確認してください。
 
@@ -74,10 +76,22 @@ productionでは、一般公開サイトと管理用SiteManagerを同じWorker�
 
 | host | 用途 | 認証 | 許可する主な経路 |
 |---|---|---|---|
-| `PUBLIC_HOST` | 一般閲覧者向け | 不要 | `/`、`/index.html`、`/media/*`のGET/HEAD |
-| `ADMIN_HOST` | SiteManagerと管理API | Cloudflare Access + Worker JWT | `/admin/*`、`/api/*`、`/media/*`のGET/HEAD |
+| `PUBLIC_HOST` | 一般閲覧者向け | 不要 | `/`、`/index.html`、`/media/*`のGET/HEAD、掲示板APIのGET/POST |
+| `ADMIN_HOST` | SiteManagerと管理API | Cloudflare Access + Worker JWT | `/admin/*`、管理API、`/media/*`のGET/HEAD |
 
-PUBLICから`/api/*`、`/admin/*`、SiteManager本体へは到達できません。ADMINはredirect、static asset、API、R2読み出しより先にAccess JWTを検証します。設定にないhostnameはfail closedです。
+PUBLICでは`/api/board/posts`だけを例外として許可し、それ以外の`/api/*`、`/admin/*`、SiteManager本体へは到達できません。ADMINはredirect、static asset、API、R2読み出しより先にAccess JWTを検証します。設定にないhostnameはfail closedです。
+
+## 共有掲示板（D1）
+
+掲示板は生成HTMLから同一originのWorker APIへ接続し、投稿をD1へ保存します。旧Firebaseおよび掲示板用localStorageへのfallbackはありません。D1 binding、Turnstile Secret、rate-limit用HMAC Secretのいずれかが欠ける場合は503でfail closedになります。
+
+- 公開一覧／投稿: `GET/POST /api/board/posts`
+- 管理者soft delete: `DELETE /api/admin/board/posts/:id`（Cloudflare Access必須）
+- 投稿はTurnstile、Origin検証、NFC正規化、長さ・stamp allowlist、rate limit、重複制限を通過した場合だけ保存
+- active投稿は最大5,000件。自動削除は行わず、削除済み行は監査可能なsoft deleteとして保持
+- migration: `worker/migrations/0001_shared_board.sql`
+
+公開用Turnstile Site KeyはSiteManagerの掲示板設定へ入力します。Secret KeyをSiteManager、project JSON、生成HTMLへ入れないでください。本番D1の作成、migration適用、Secrets登録は別工程で明示的に実施してください。
 
 SiteManager本体はリポジトリ直下の`eruremo_SiteManager.html`だけを編集します。production用コピーをソースとしてGit管理しません。一般公開用HTMLと合わせるときは、SiteManagerが生成した`index.html`を`worker/public-site/index.html`へ置き、次を実行します。
 
@@ -113,7 +127,7 @@ cd worker
 node --test "test/**/*.test.mjs"
 ```
 
-現在確認済みの内訳は、編集ツール 298 tests、Worker 498 tests（481 pass、既存の実データ依存17件はskip）、合計 796 tests、fail 0です。
+現在確認済みの内訳は、編集ツール 310 tests（309 pass、1 skip）、Worker 517 tests（500 pass、17 skip）、合計 827 tests、fail 0です。
 
 ## セキュリティ上の注意
 
@@ -131,5 +145,6 @@ node --test "test/**/*.test.mjs"
 - [現在の構成](docs/CURRENT_ARCHITECTURE_JA.md)
 - [旧将来構成（Phase 1時点の履歴）](docs/FUTURE_ARCHITECTURE_JA.md)
 - [Production Admin Phase A](docs/PRODUCTION_ADMIN_PHASE_A_JA.md)
+- [D1共有掲示板](docs/SHARED_BOARD_D1_JA.md)
 - [R2 仕様](docs/PHASE2_R2_SPEC_JA.md)
 - [テスト計画](docs/TEST_PLAN_JA.md)

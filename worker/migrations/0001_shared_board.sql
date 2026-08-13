@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS board_posts (id TEXT PRIMARY KEY, name TEXT NOT NULL, body TEXT NOT NULL, stamp TEXT NOT NULL, created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','deleted')), deleted_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_board_posts_list ON board_posts(status,created_at DESC,id DESC);
+CREATE INDEX IF NOT EXISTS idx_board_posts_cursor ON board_posts(status,created_at,id);
+CREATE TABLE IF NOT EXISTS board_state (singleton INTEGER PRIMARY KEY CHECK(singleton=1), active_count INTEGER NOT NULL DEFAULT 0 CHECK(active_count>=0));
+INSERT OR IGNORE INTO board_state(singleton,active_count) VALUES(1,0);
+CREATE TRIGGER IF NOT EXISTS board_posts_count_insert AFTER INSERT ON board_posts WHEN NEW.status='active' BEGIN UPDATE board_state SET active_count=active_count+1 WHERE singleton=1; END;
+CREATE TRIGGER IF NOT EXISTS board_posts_count_delete AFTER UPDATE OF status ON board_posts WHEN OLD.status='active' AND NEW.status='deleted' BEGIN UPDATE board_state SET active_count=active_count-1 WHERE singleton=1; END;
+CREATE TABLE IF NOT EXISTS board_rate_limits (identity_hash TEXT PRIMARY KEY,last_post_at INTEGER NOT NULL,window_start INTEGER NOT NULL,window_count INTEGER NOT NULL,expires_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_board_rate_expiry ON board_rate_limits(expires_at);
+CREATE TABLE IF NOT EXISTS board_recent_content (identity_hash TEXT NOT NULL,body_hash TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,PRIMARY KEY(identity_hash,body_hash));
+CREATE INDEX IF NOT EXISTS idx_board_content_expiry ON board_recent_content(expires_at);

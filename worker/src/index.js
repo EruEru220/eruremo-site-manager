@@ -24,6 +24,7 @@ import { handleMediaRead } from "./lib/mediaRead.js";
 import { handleMediaList } from "./lib/mediaList.js";
 import { handleMediaDelete } from "./lib/mediaDelete.js";
 import { checkAccess } from "./lib/accessJwt.js";
+import { handleBoardList, handleBoardPost, handleBoardDelete } from "./lib/board.js";
 
 /** Only this exact environment bypasses Cloudflare Access. */
 export function isLocalEnv(env){
@@ -128,8 +129,19 @@ async function serveMedia(request, path, env){
   }
 }
 
-async function serveApi(request, path, env){
+async function serveApi(request, path, env, context = {}){
   try {
+    if (path === "/api/board/posts") {
+      if (context.apiRole === "admin") return jsonError("NOT_FOUND");
+      if (request.method === "GET") return handleBoardList(request, env);
+      if (request.method === "POST") return handleBoardPost(request, env, context.boardDependencies);
+      return jsonError("NOT_FOUND");
+    }
+    const boardDelete = /^\/api\/admin\/board\/posts\/([^/]+)$/.exec(path);
+    if (boardDelete) {
+      if (context.apiRole === "public") return jsonError("NOT_FOUND");
+      return handleBoardDelete(request, env, decodeURIComponent(boardDelete[1]));
+    }
     if (path === "/api/health") return handleHealth(request, env);
     if (path === "/api/media/upload") return await handleUpload(request, env);
     if (path === "/api/media") return await handleMediaList(request, env);
@@ -141,7 +153,8 @@ async function serveApi(request, path, env){
   }
 }
 
-async function handlePublicProduction(request, env, path){
+async function handlePublicProduction(request, env, path, context){
+  if (path === "/api/board/posts") return serveApi(request, path, env, { ...context, apiRole: "public" });
   /* Allowlist only: public HTML and read-only media. */
   if (request.method !== "GET" && request.method !== "HEAD") {
     return jsonError("NOT_FOUND");
@@ -155,7 +168,7 @@ async function handlePublicProduction(request, env, path){
   return jsonError("NOT_FOUND");
 }
 
-async function handleAdminProduction(request, env, path, accessCheck){
+async function handleAdminProduction(request, env, path, accessCheck, context){
   /* Access is checked before redirects, assets, API responses, or R2 reads. */
   const identity = await accessCheck(request, env);
   if (!identity || identity.ok !== true) return jsonError("FORBIDDEN");
@@ -176,25 +189,25 @@ async function handleAdminProduction(request, env, path, accessCheck){
     if (!methodIsRead) return jsonError("NOT_FOUND");
     return serveMedia(request, normalized, env);
   }
-  if (isApiPath(normalized)) return serveApi(request, normalized, env);
+  if (isApiPath(normalized)) return serveApi(request, normalized, env, { ...context, apiRole: "admin" });
 
   if (!methodIsRead || !path.startsWith("/admin/")) return jsonError("NOT_FOUND");
   return serveAsset(request, env, path);
 }
 
-async function handleProduction(request, env, accessCheck){
+async function handleProduction(request, env, accessCheck, context){
   const path = requestPath(request);
   if (path == null) return jsonError("BAD_REQUEST");
 
   const role = classifyProductionHost(request, env);
-  if (role === "public") return handlePublicProduction(request, env, path);
-  if (role === "admin") return handleAdminProduction(request, env, path, accessCheck);
+  if (role === "public") return handlePublicProduction(request, env, path, context);
+  if (role === "admin") return handleAdminProduction(request, env, path, accessCheck, context);
 
   /* Unknown and misconfigured hosts fail closed without touching assets/R2. */
   return jsonError("NOT_FOUND");
 }
 
-async function handleLocalOrStaging(request, env, accessCheck){
+async function handleLocalOrStaging(request, env, accessCheck, context){
   /* Existing fail-closed staging behavior. Unknown non-local environments also
      remain guarded, preserving the original typo/missing-config safety rule. */
   if (isGuardedEnv(env)) {
@@ -211,7 +224,7 @@ async function handleLocalOrStaging(request, env, accessCheck){
   const path = trimTrailingSlash(rawPath);
 
   if (isMediaPath(path)) return serveMedia(request, path, env);
-  if (isApiPath(path)) return serveApi(request, path, env);
+  if (isApiPath(path)) return serveApi(request, path, env, { ...context, apiRole: "local" });
   return serveAsset(request, env);
 }
 
@@ -223,8 +236,9 @@ export function createWorker(options = {}){
   const accessCheck = typeof options.accessCheck === "function" ? options.accessCheck : checkAccess;
   return {
     async fetch(request, env, ctx){
-      if (isProductionEnv(env)) return handleProduction(request, env, accessCheck);
-      return handleLocalOrStaging(request, env, accessCheck);
+      const context = { boardDependencies: options.boardDependencies || {} };
+      if (isProductionEnv(env)) return handleProduction(request, env, accessCheck, context);
+      return handleLocalOrStaging(request, env, accessCheck, context);
     }
   };
 }

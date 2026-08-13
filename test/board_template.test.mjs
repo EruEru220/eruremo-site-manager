@@ -1,0 +1,10 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+const html=fs.readFileSync(new URL("../eruremo_SiteManager.html",import.meta.url),"utf8");
+const m=/const TEMPLATE = decodeB64\("([^"]+)"\)/.exec(html);
+const t=Buffer.from(m[1],"base64").toString("utf8");
+test("generated board uses only shared API and never old localStorage/Firebase",()=>{assert.match(t,/const API="\/api\/board\/posts"/);for(const x of ["elremo_board_v1","elremo_board_v1_last","firebase-app","firebase-firestore","board_posts\")"])assert.equal(t.includes(x),false,x)});
+test("board UI has loading/empty/unavailable/reload and safe DOM rendering",()=>{for(const x of ["読み込み中…","まだ投稿がありません","掲示板を現在利用できません","bReload","textContent","replaceChildren"])assert.ok(t.includes(x),x);assert.equal(/innerHTML\s*=.*p\.body/.test(t),false)});
+test("Turnstile is public-key injected, reset after post, and CSP is narrowly extended",()=>{for(const x of ["turnstileSiteKey","https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit","turnstile.reset","frame-src https://challenges.cloudflare.com","connect-src 'self' https://challenges.cloudflare.com"])assert.ok(t.includes(x),x);assert.equal(t.includes("TURNSTILE_SECRET_KEY"),false)});
+test("board keeps 3/2/1 responsive columns and exact stamp allowlist",()=>{assert.match(t,/\.posts\{columns:3/);assert.ok(t.includes("max-width:900px"));assert.match(t,/\.posts\{columns:2/);assert.ok(t.includes("max-width:560px"));assert.match(t,/\.posts\{columns:1/);assert.ok(t.includes('["☕","✦","🌙","🍰","💗","🎧","🎀","🍾"]'))});

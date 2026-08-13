@@ -30,6 +30,15 @@
     }
   ],
 
+  "d1_databases": [
+    {
+      "binding": "BOARD_DB",
+      "database_name": "your-board-local",
+      "database_id": "your-d1-database-id",
+      "migrations_dir": "migrations"
+    }
+  ],
+
   "vars": {
     "ENVIRONMENT": "local",
     "PUBLIC_MEDIA_BASE_URL": "http://127.0.0.1:8787",
@@ -61,6 +70,15 @@
         {
           "binding": "MEDIA_BUCKET",
           "bucket_name": "your-media-staging"
+        }
+      ],
+
+      "d1_databases": [
+        {
+          "binding": "BOARD_DB",
+          "database_name": "your-board-staging",
+          "database_id": "your-d1-staging-database-id",
+          "migrations_dir": "migrations"
         }
       ],
 
@@ -105,6 +123,15 @@
         {
           "binding": "MEDIA_BUCKET",
           "bucket_name": "your-media-production"
+        }
+      ],
+
+      "d1_databases": [
+        {
+          "binding": "BOARD_DB",
+          "database_name": "your-board-production",
+          "database_id": "your-d1-production-database-id",
+          "migrations_dir": "migrations"
         }
       ],
 

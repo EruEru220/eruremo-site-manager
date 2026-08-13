@@ -6,3 +6,8 @@ ACCESS_AUD=
 # Comma-separated administrator emails. Legacy single-value ALLOWED_EMAIL is
 # still accepted when ALLOWED_EMAILS is absent.
 ALLOWED_EMAILS=
+
+# Shared board server-side secrets. TURNSTILE_SECRET_KEY is never placed in
+# project JSON or generated HTML. Use an unpredictable value for the HMAC key.
+TURNSTILE_SECRET_KEY=
+BOARD_RATE_LIMIT_SECRET=

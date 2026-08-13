@@ -451,7 +451,8 @@ test("生成用ひな形（TEMPLATE）に手が入っていないこと", () => 
   }
 
   /* 生成サイトの localStorage キーと、画像の入れ方（URL でも Base64 でも動く形） */
-  assert.ok(TEMPLATE.includes("elremo_board_v1"), "掲示板の保存キーが変わっています");
+  assert.equal(TEMPLATE.includes("elremo_board_v1"), false, "旧掲示板localStorageキーが残っています");
+  assert.equal(TEMPLATE.includes("elremo_board_v1_last"), false, "旧掲示板cooldownキーが残っています");
   assert.ok(TEMPLATE.includes("elremo_motion"), "演出の保存キーが変わっています");
   assert.ok(/n\.src\s*=\s*v/.test(TEMPLATE), "画像の入れ方（n.src = v）が変わっています");
 });

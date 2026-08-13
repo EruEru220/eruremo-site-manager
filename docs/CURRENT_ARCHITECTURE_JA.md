@@ -482,24 +482,22 @@ for(const it of (data.present?.items||[])){
 
 ## 13. 掲示板（らくがきボード）
 
-公開サイト側（TEMPLATE 2556–2637行）の実装。エディタ側は設定値を入力するだけです。
+公開サイト側のTEMPLATEとWorker API、D1 migrationで構成します。エディタ側は公開用Turnstile Site Keyを入力します。
 
 | 項目 | 内容 |
 |---|---|
-| ライブラリ | `https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js` と `firebase-firestore.js` を**動的 `import()`** |
-| 使う条件 | `D.board.fb.apiKey` と `D.board.fb.projectId` が**両方**埋まっているとき |
-| コレクション | `board_posts`（`orderBy("at","desc")`, `limit(120)`, `onSnapshot` でリアルタイム） |
-| 投稿データ | `{ name(16字), text(140字), stamp, at }` |
-| 連投防止 | 30秒（`localStorage["elremo_board_v1_last"]` を見るだけ＝**クライアント側のみ**） |
-| NGワード | `D.board.ngWords` に含まれる文字列を `text.includes()` で判定（**クライアント側のみ**） |
-| ローカルモード | Firebase未設定なら `localStorage["elremo_board_v1"]` に最大120件保存（**その端末だけ**） |
-| 第3のモード | `D.board.api` が設定されていれば `fetch(API)` の REST モード。**編集UIが存在せず、JSON直編集でしか設定できません** |
+| API | PUBLIC `GET/POST /api/board/posts`、ADMIN `DELETE /api/admin/board/posts/:id` |
+| 保存先 | D1 binding `BOARD_DB`。active投稿だけを新しい順に取得 |
+| 投稿データ | `{ id, name, body, stamp, created_at, status, deleted_at }` |
+| 一覧 | 初期30件、最大50件、`created_at + id` cursor |
+| 連投防止 | HMAC匿名識別子ごとに30秒1件、10分5件、同一本文10分拒否 |
+| 上限 | active 5,000件。triggerで件数を管理し、上限到達時は新規投稿を503で停止 |
+| 削除 | Access認証済みADMINだけがsoft delete。PUBLICからは404 |
+| UI更新 | 初回・投稿成功後・手動再読み込み。WebSocket/SSE/自動pollingなし |
 
-- Firebase の `apiKey` / `projectId` / `authDomain` は**生成HTMLに平文で埋め込まれます**。
-  これは Firebase Web SDK の仕様上そういうもので、実際の防御は **Firestore セキュリティルール**が担います。
-- エディタ内のヘルプ（1404–1421行）が推奨ルールを提供：
-  `read: if true` / `create` はフィールド名・型・文字数を検証 / `update, delete: if false`。
-  **NGワードと30秒制限はルールに含まれていない**ため、サーバ側では強制されません。
+- Firebaseと掲示板用localStorage fallbackは使用しません。
+- `TURNSTILE_SECRET_KEY`と`BOARD_RATE_LIMIT_SECRET`はWorker Secretです。HTMLやproject JSONへ保存しません。
+- D1 bindingまたは必須Secretが欠ける場合、APIは503でfail closedになります。
 
 ---
 
@@ -548,7 +546,7 @@ for(const it of (data.present?.items||[])){
 | warn | スタッフ名が空／配布物名が空／配布物URL形式／合言葉の使い回し |
 | warn | ギャラリーに `src` 無し／説明文無し |
 | warn | カウントダウンON なのに開催日未設定 |
-| warn | FAQ表示ONなのに0件／掲示板表示ONなのにFirebase未設定 |
+| warn | FAQ表示ONなのに0件／掲示板表示ONなのにTurnstile Site Key未設定 |
 | warn | データが 2MB 超 |
 
 `#btnDownload` は保存前に `runChecks()` を実行し、**err が1件以上あれば確認ダイアログ**を出します。
@@ -755,7 +753,7 @@ flowchart TD
 | PC/タブレット/スマホ | `applyPvSize()` / `#segView` | PCは1280px描画＋scale縮小 | — |
 | モバイルプレビュー | `#btnPreviewMobile` / `checkNarrow()` | 幅1180px以下で全画面表示 | — |
 | プレビュー位置連動 | `syncPreviewSection()` | タブに対応するIDへスクロール | ギャラリーだけ `[data-nav]` をクリック |
-| JSON書き出し | `data-act="exportJson"` | `elremo-project.json` | **平文の合言葉とFirebase設定を含む** |
+| JSON書き出し | `data-act="exportJson"` | `elremo-project.json` | **平文のgift合言葉を含む**。掲示板には公開Site Keyだけを保存 |
 | JSON読み込み | `#fileJson` | `migrate()` を通す。Ctrl+Zで戻せる | 失敗してもDATAは無傷 |
 | HTML読み込み | `#fileHtml` | 正規表現で `SITE_DATA` を抽出 | 目印の書式に完全依存 |
 | index.html保存 | `#btnDownload` / `buildHtml()` | チェック実行 → 確認 → ダウンロード | ファイル名は `index.html` 固定 |
@@ -767,7 +765,7 @@ flowchart TD
 | favicon | `__FAVICON__` | data URL も外部URLも可 | — |
 | JSON-LD | `buildJsonLd()` | WebSite ＋（条件付き）Event | `</script` を無害化済み |
 | プレゼント暗号化 | `lockUrl()` / TEMPLATE の `unlockUrl()` | SHA-256鍵 ＋ AES-GCM | 合言葉は生成HTMLに出ない |
-| 掲示板 | TEMPLATE 2556–2637行 | Firebase / REST / ローカルの3モード | NGワード・連投防止はクライアント側のみ |
+| 掲示板 | TEMPLATE＋Worker＋D1 | 同一origin APIで共有 | Turnstile・Origin・rate limitをサーバ側で検証 |
 | キーボード操作 | `keydown` ハンドラ | Ctrl+S/Z/Shift+Z/Y/F/Enter/↑↓、?、Esc | — |
 | トースト通知 | `toast()` / `toastLater()` | 下部中央、既定2.6秒 | — |
 | タブ単位リセット | `resetTab()` | そのタブのキーだけ `DEFAULT_DATA` へ | confirm確認あり・Ctrl+Zで戻せる |
@@ -794,9 +792,9 @@ flowchart TD
 | 依存先 | 用途 | 必須か |
 |---|---|---|
 | `fonts.googleapis.com` / `fonts.gstatic.com` | Hachi Maru Pop / Zen Maru Gothic / Fredoka | 任意（無くても表示される） |
-| `www.gstatic.com/firebasejs/10.12.2/*` | 掲示板（動的import） | Firebase設定時のみ |
+| `challenges.cloudflare.com` | 掲示板のTurnstile | 投稿時に必須 |
 | `crypto.subtle` | プレゼント復号 | 合言葉機能を使うときのみ |
-| `localStorage` | 掲示板ローカルモード・演出レベル記憶（`elremo_motion`） | 任意 |
+| `localStorage` | 演出レベル記憶（`elremo_motion`） | 任意。掲示板投稿には使用しない |
 
 ### Cloudflare 環境へ移したときに問題になりそうな点
 
@@ -805,6 +803,6 @@ flowchart TD
 | 単一HTMLのサイズ | Base64画像込みだと数MB。Pages自体は配信できるが**初回表示が遅い**。R2化で解決（Phase 2/3） |
 | `crypto.subtle` | HTTPS 配信になるので **むしろ改善**（`file://` 直開きより確実） |
 | Google Fonts | 外部リクエストが残る。将来 CSP を厳しくする場合はセルフホストの検討余地あり |
-| Firebase 動的import | `gstatic.com` への外部リクエスト。CSP を設定する場合は許可が必要 |
+| Turnstile | `challenges.cloudflare.com`だけをCSPのscript/frame/connectで許可 |
 | localStorage | 管理画面を `admin.eruremo.com` に移すと**オリジンが変わり、既存の編集内容が引き継がれません**（Phase 7 で .json 経由の移行手順が必須） |
 | `srcdoc` プレビュー | CSP の `frame-src`/`sandbox` 設定次第で影響を受けうる |
