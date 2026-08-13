@@ -134,7 +134,7 @@ async function serveApi(request, path, env, context = {}){
     if (path === "/api/board/posts") {
       if (context.apiRole === "admin") return jsonError("NOT_FOUND");
       if (request.method === "GET") return handleBoardList(request, env);
-      if (request.method === "POST") return handleBoardPost(request, env, context.boardDependencies);
+      if (request.method === "POST") return await handleBoardPost(request, env, context.boardDependencies);
       return jsonError("NOT_FOUND");
     }
     const boardDelete = /^\/api\/admin\/board\/posts\/([^/]+)$/.exec(path);

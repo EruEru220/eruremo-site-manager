@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { BOARD_STAMPS, handleBoardList, handleBoardPost, handleBoardDelete, encodeBoardCursor, decodeBoardCursor } from "../src/lib/board.js";
 import { createWorker } from "../src/index.js";
@@ -57,6 +58,59 @@ test("GETはactiveだけを降順・30件初期・50件上限・cursor付きで�
 test("空一覧と同時刻UUID cursor境界は欠落・重複なし",async()=>{const x=await fixture();try{let r=await handleBoardList(new Request("https://eruremo.com/api/board/posts"),x.env);assert.deepEqual(await r.json(),{ok:true,posts:[],nextCursor:null});for(let i=0;i<3;i++)await x.BOARD_DB.prepare("INSERT INTO board_posts VALUES(?,?,?,?,?,'active',NULL)").bind(`018f47a0-12ab-4def-8abc-${String(i).padStart(12,"0")}`,"n",`same${i}`,"☕",1000).run();r=await handleBoardList(new Request("https://eruremo.com/api/board/posts?limit=2"),x.env);const a=await r.json();r=await handleBoardList(new Request(`https://eruremo.com/api/board/posts?limit=2&cursor=${encodeURIComponent(a.nextCursor)}`),x.env);const b=await r.json();assert.deepEqual([...a.posts,...b.posts].map(p=>p.id),["018f47a0-12ab-4def-8abc-000000000002","018f47a0-12ab-4def-8abc-000000000001","018f47a0-12ab-4def-8abc-000000000000"])}finally{await x.mf.dispose()}});
 
 test("POSTはTurnstile後に正規化しserver id/timeで保存する",async()=>{const x=await fixture();try{const r=await handleBoardPost(postRequest(valid),x.env,{fetch:okVerify,now:()=>1700000000000,randomUUID:()=>UUID});assert.equal(r.status,201);const j=await r.json();assert.deepEqual(j.post,{id:UUID,name:"テスト",body:"こんにちは",stamp:"✦",created_at:1700000000000});const row=await x.BOARD_DB.prepare("SELECT status FROM board_posts WHERE id=?").bind(UUID).first();assert.equal(row.status,"active")}finally{await x.mf.dispose()}});
+
+test("production相当workerdはreceiver付きWeb Crypto UUIDでPOSTを保存する",async()=>{
+  let verifyCalls=0;
+  const mf=new Miniflare({
+    modules:true,
+    modulesRules:[{type:"ESModule",include:["**/*.js"]}],
+    scriptPath:fileURLToPath(new URL("../src/index.js",import.meta.url)),
+    compatibilityDate:"2026-08-01",
+    d1Databases:["BOARD_DB"],
+    bindings:{ENVIRONMENT:"production",PUBLIC_HOST:"eruremo.com",ADMIN_HOST:"admin.eruremo.com",BOARD_RATE_LIMIT_SECRET:"local-rate-secret",TURNSTILE_SECRET_KEY:"local-turnstile-secret",MEDIA_MUTATIONS_ENABLED:"false"},
+    outboundService:async request=>{verifyCalls++;assert.equal(new URL(request.url).hostname,"challenges.cloudflare.com");return okVerify()}
+  });
+  try{
+    const {BOARD_DB}=await mf.getBindings();
+    await BOARD_DB.exec(migration);
+    const r=await mf.dispatchFetch("https://eruremo.com/api/board/posts",{method:"POST",headers:{origin:"https://eruremo.com","content-type":"application/json"},body:JSON.stringify(valid)});
+    assert.equal(r.status,201);
+    assert.match(r.headers.get("content-type")||"",/^application\/json\b/);
+    const j=await r.json();
+    assert.match(j.post.id,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    assert.equal(j.post.stamp,"✦");
+    assert.equal(verifyCalls,1);
+    assert.equal((await BOARD_DB.prepare("SELECT COUNT(*) AS count FROM board_posts WHERE id=? AND stamp='✦'").bind(j.post.id).first()).count,1);
+    assert.equal((await BOARD_DB.prepare("SELECT active_count FROM board_state WHERE singleton=1").first()).active_count,1);
+    assert.equal((await BOARD_DB.prepare("SELECT COUNT(*) AS count FROM board_rate_limits").first()).count,1);
+    assert.equal((await BOARD_DB.prepare("SELECT COUNT(*) AS count FROM board_recent_content").first()).count,1);
+    const listed=await mf.dispatchFetch("https://eruremo.com/api/board/posts");
+    assert.equal(listed.status,200);
+    const listedJson=await listed.json();
+    assert.equal(listedJson.posts.length,1);
+    assert.equal(listedJson.posts[0].id,j.post.id);
+    assert.equal(listedJson.posts[0].stamp,"✦");
+  }finally{await mf.dispose()}
+});
+
+test("production POSTの非同期rejectionは固定JSON INTERNALへ変換する",async()=>{
+  const x=await fixture();
+  try{
+    const env={...x.env,ENVIRONMENT:"production",ASSETS:{fetch:async()=>new Response("asset")}};
+    const worker=createWorker({boardDependencies:{fetch:okVerify,randomUUID:()=>{throw new Error("private sentinel")}}});
+    const r=await worker.fetch(postRequest(valid),env);
+    assert.equal(r.status,500);
+    assert.match(r.headers.get("content-type")||"",/^application\/json\b/);
+    assert.equal(r.headers.get("cache-control"),"no-store");
+    const text=await r.text();
+    const j=JSON.parse(text);
+    assert.equal(j.error.code,"INTERNAL");
+    assert.equal(/private sentinel|stack|SQL|D1/.test(text),false);
+    for(const table of ["board_posts","board_rate_limits","board_recent_content"]){
+      assert.equal((await x.BOARD_DB.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first()).count,0,table);
+    }
+  }finally{await x.mf.dispose()}
+});
 
 test("POST validationはOrigin/type/size/schema/Unicode/stamp/Turnstileをfail closedにする",async()=>{const x=await fixture();try{assert.equal((await handleBoardPost(postRequest(valid,{origin:"https://evil.invalid"}),x.env,{fetch:okVerify})).status,403);assert.equal((await handleBoardPost(new Request("https://eruremo.com/api/board/posts",{method:"POST",headers:{origin:"https://eruremo.com","content-type":"text/plain"},body:"{}"}),x.env,{fetch:okVerify})).status,415);for(const bad of [{...valid,extra:1},{...valid,body:""},{...valid,body:"x".repeat(141)},{...valid,name:"x".repeat(17)},{...valid,stamp:"x"}])assert.equal((await handleBoardPost(postRequest(bad),x.env,{fetch:okVerify})).status,400);assert.equal((await handleBoardPost(postRequest(valid),x.env,{fetch:async()=>new Response('{"success":false}',{headers:{"content-type":"application/json"}})})).status,403)}finally{await x.mf.dispose()}});
 
