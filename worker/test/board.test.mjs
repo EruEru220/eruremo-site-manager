@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { Miniflare } from "miniflare";
-import { handleBoardList, handleBoardPost, handleBoardDelete, encodeBoardCursor, decodeBoardCursor } from "../src/lib/board.js";
+import { BOARD_STAMPS, handleBoardList, handleBoardPost, handleBoardDelete, encodeBoardCursor, decodeBoardCursor } from "../src/lib/board.js";
 import { createWorker } from "../src/index.js";
 
 const migration=fs.readFileSync(new URL("../migrations/0001_shared_board.sql",import.meta.url),"utf8");
@@ -16,6 +16,37 @@ async function fixture(){
 const okVerify=async()=>new Response(JSON.stringify({success:true}),{headers:{"content-type":"application/json"}});
 const postRequest=(body,extra={})=>new Request("https://eruremo.com/api/board/posts",{method:"POST",headers:{origin:"https://eruremo.com","content-type":"application/json","CF-Connecting-IP":"192.0.2.1",...extra},body:JSON.stringify(body)});
 const valid={name:" テスト ",body:" こんにちは ",stamp:"✦",turnstileToken:"token"};
+
+test("Worker stamp allowlist exactly matches the eight public canonical values",()=>{
+  assert.deepEqual([...BOARD_STAMPS],["☕","✦","🌙","🍰","💗","🎧","🎀","🍾"]);
+  assert.equal(new Set(BOARD_STAMPS).size,8);
+  assert.equal(BOARD_STAMPS.includes("✨"),false);
+});
+
+test("U+2726 reaches Turnstile and D1 while U+2728 fails before all side effects",async()=>{
+  const good=await fixture();
+  try{
+    let verifyCalls=0;
+    const r=await handleBoardPost(postRequest(valid),good.env,{fetch:async()=>{verifyCalls++;return okVerify()},now:()=>1700000000000,randomUUID:()=>UUID});
+    assert.equal(r.status,201);
+    assert.equal(verifyCalls,1);
+    assert.equal((await good.BOARD_DB.prepare("SELECT stamp FROM board_posts WHERE id=?").bind(UUID).first()).stamp,"✦");
+  }finally{await good.mf.dispose()}
+  const bad=await fixture();
+  try{
+    let verifyCalls=0;
+    const r=await handleBoardPost(postRequest({...valid,stamp:"✨"}),bad.env,{fetch:async()=>{verifyCalls++;return okVerify()}});
+    assert.equal(r.status,400);
+    const errorBody=await r.json();
+    assert.equal(errorBody.ok,false);
+    assert.equal(errorBody.error.code,"BAD_REQUEST");
+    assert.equal(verifyCalls,0);
+    for(const table of ["board_posts","board_rate_limits","board_recent_content"]){
+      assert.equal((await bad.BOARD_DB.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first()).count,0,table);
+    }
+    assert.equal((await bad.BOARD_DB.prepare("SELECT active_count FROM board_state WHERE singleton=1").first()).active_count,0);
+  }finally{await bad.mf.dispose()}
+});
 
 test("migrationは再適用でき、必要なtable/index/triggerを保持する",async()=>{const x=await fixture();try{await x.BOARD_DB.exec(migration);const rows=await x.BOARD_DB.prepare("SELECT name,type FROM sqlite_master WHERE name LIKE 'board_%' ORDER BY name").all();for(const n of ["board_posts","board_state","board_rate_limits","board_recent_content","board_posts_count_insert","board_posts_count_delete"])assert.ok(rows.results.some(r=>r.name===n),n)}finally{await x.mf.dispose()}});
 
