@@ -254,6 +254,18 @@ button{cursor:pointer;background:none;border:none}
 .help code{background:rgba(142,216,255,.14);color:var(--sora);padding:2px 7px;border-radius:6px;font-size:.85em;font-family:'Fredoka',monospace}
 .help a{color:var(--sora)}
 .help.tip{border-color:rgba(255,217,142,.4);background:rgba(255,217,142,.08)}
+.board-admin{margin:var(--sp-5) 0;padding:18px;border:1.5px solid var(--line);border-radius:var(--r-lg);background:rgba(15,14,38,.24);min-width:0}
+.board-admin-head,.board-admin-actions,.board-admin-tabs{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.board-admin-head{justify-content:space-between;margin-bottom:12px}.board-admin-head h3{font-size:1rem;color:var(--star)}
+.board-admin-tabs{margin-bottom:10px}.board-admin-tab[aria-selected="true"]{color:var(--ink);border-color:var(--star);background:rgba(255,217,142,.12)}
+.board-admin-status{min-height:1.5em;color:var(--dim);font-size:.78rem;margin:8px 0}
+.board-admin-list{display:grid;gap:10px;min-width:0}.board-admin-post{border:1px solid var(--line);border-radius:var(--r);padding:12px;background:rgba(255,255,255,.04);min-width:0}
+.board-admin-post-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.board-admin-post-name{font-weight:800}.board-admin-post-stamp{font-size:1.2rem}
+.board-admin-post-body{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0;color:var(--ink2);line-height:1.7}.board-admin-post-meta{display:grid;gap:4px;color:var(--dim);font-size:.72rem;overflow-wrap:anywhere}
+.board-admin-post code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;word-break:break-all;color:var(--sora)}
+.board-admin-delete{margin-top:10px;border-color:rgba(255,155,184,.5);color:var(--err)}.board-admin-delete:disabled{opacity:.45;cursor:not-allowed}
+.board-admin-empty{padding:20px;text-align:center;color:var(--dim);border:1px dashed var(--line);border-radius:var(--r)}
+@media(max-width:700px){.board-admin{padding:12px}.board-admin-head{align-items:flex-start;flex-direction:column}.board-admin-actions{width:100%}.board-admin-actions .mini{flex:1}.board-admin-post{padding:10px}}
 
 /* 検証パネル */
 .checkbox-panel{position:fixed;right:18px;bottom:18px;width:min(92vw,420px);max-height:70vh;overflow:auto;
@@ -773,7 +785,7 @@ const SCHEMA=[
     {k:"board.turnstileSiteKey", label:"Turnstile Site Key（公開値）", hint:"Cloudflare Turnstileの公開Site Keyです。Secret Keyはここへ入力しません。", type:"text"},
   ],
   strLists:[{k:"board.ngWords", label:"貼れないことば（NGワード）", hint:"ここに入れたことばを含む投稿は貼りつけできなくなります。"}],
-  boardHelp:true },
+  boardHelp:true, boardManage:true },
 
 { id:"faq", tab:"⑫ よくある質問", title:"よくあるご質問（FAQ）", desc:"「はじめてだけど何をすればいい？」に答えるコーナーです。②基本タブの「表示するコーナー」でONにすると公開されます。",
   fields:[
@@ -1205,6 +1217,7 @@ function renderPane(){
   if(s.help) paneEl.appendChild(helpEl());
   if(s.seoHelp) paneEl.appendChild(seoHelpEl());
   if(s.boardHelp) paneEl.appendChild(boardHelpEl());
+  if(s.boardManage) paneEl.appendChild(boardManagerEl());
   if(s.galleryHelp) paneEl.appendChild(galleryHelpEl());
 
   (s.fields||[]).forEach(f=>paneEl.appendChild(fieldEl(f, get(f.k), v=>set(f.k,v))));
@@ -1445,6 +1458,103 @@ function boardHelpEl(){
     </ul>
   </div>`;
   return d;
+}
+
+function boardManagerEl(){
+  const root=elm("section","board-admin");
+  root.setAttribute("aria-labelledby","boardAdminTitle");
+  const head=elm("div","board-admin-head");
+  const title=elm("h3",null,"掲示板管理"); title.id="boardAdminTitle";
+  const actions=elm("div","board-admin-actions");
+  const reload=elm("button","mini","再読み込み"); reload.type="button";
+  actions.appendChild(reload); head.append(title,actions);
+  const tabs=elm("div","board-admin-tabs"); tabs.setAttribute("role","tablist"); tabs.setAttribute("aria-label","投稿の状態");
+  const activeTabButton=elm("button","mini board-admin-tab","公開中");
+  const deletedTabButton=elm("button","mini board-admin-tab","削除済み");
+  for(const [button,status] of [[activeTabButton,"active"],[deletedTabButton,"deleted"]]){
+    button.type="button"; button.setAttribute("role","tab"); button.dataset.status=status; tabs.appendChild(button);
+  }
+  const count=elm("p","board-admin-status");
+  const message=elm("p","board-admin-status"); message.setAttribute("aria-live","polite"); message.setAttribute("role","status");
+  const list=elm("div","board-admin-list");
+  const more=elm("button","mini","もっと見る"); more.type="button"; more.hidden=true;
+  root.append(head,tabs,count,message,list,more);
+
+  const states={active:{posts:[],ids:new Set(),cursor:null,loaded:false},deleted:{posts:[],ids:new Set(),cursor:null,loaded:false}};
+  let current="active",loading=false,deleting=false;
+  const fmtDate=value=>{const n=Number(value);return Number.isSafeInteger(n)&&n>=0?new Intl.DateTimeFormat("ja-JP",{dateStyle:"medium",timeStyle:"short"}).format(new Date(n)):"—"};
+  function setBusy(value){loading=value;reload.disabled=value||deleting;more.disabled=value||deleting;root.setAttribute("aria-busy",String(value||deleting))}
+  function updateTabs(){for(const b of [activeTabButton,deletedTabButton]){const selected=b.dataset.status===current;b.setAttribute("aria-selected",String(selected));b.tabIndex=selected?0:-1}}
+  function render(){
+    updateTabs(); const state=states[current]; list.replaceChildren();
+    count.textContent=`${current==="active"?"公開中":"削除済み"}：${state.posts.length}件${state.cursor?"（続きあり）":""}`;
+    if(!state.posts.length&&!loading)list.appendChild(elm("p","board-admin-empty",state.loaded?"投稿はありません":"まだ読み込んでいません"));
+    for(const post of state.posts){
+      const card=elm("article","board-admin-post"); card.dataset.postId=post.id;
+      const ph=elm("div","board-admin-post-head");
+      ph.append(elm("span","board-admin-post-stamp",post.stamp),elm("strong","board-admin-post-name",post.name),elm("span","badge",post.status==="deleted"?"削除済み":"公開中"));
+      const body=elm("p","board-admin-post-body",post.body);
+      const meta=elm("div","board-admin-post-meta");
+      const idLine=elm("span",null,"ID: "); const idCode=elm("code",null,post.id); idLine.appendChild(idCode);
+      meta.append(idLine,elm("span",null,`投稿日: ${fmtDate(post.created_at)}`));
+      if(post.status==="deleted")meta.appendChild(elm("span",null,`削除日時: ${fmtDate(post.deleted_at)}`));
+      card.append(ph,body,meta);
+      if(post.status==="active"){
+        const del=elm("button","mini board-admin-delete","この投稿を削除"); del.type="button"; del.disabled=deleting;
+        del.setAttribute("aria-label",`${post.name} の投稿を削除`);
+        del.addEventListener("click",()=>deletePost(post)); card.appendChild(del);
+      }
+      list.appendChild(card);
+    }
+    more.hidden=!state.cursor; more.disabled=loading||deleting;
+  }
+  function validPost(post,status){return post&&typeof post==="object"&&typeof post.id==="string"&&typeof post.name==="string"&&typeof post.body==="string"&&typeof post.stamp==="string"&&post.status===status&&Number.isSafeInteger(post.created_at)&&(post.deleted_at===null||Number.isSafeInteger(post.deleted_at))}
+  async function loadStatus(status,reset=false){
+    if(loading)return false; const state=states[status]; setBusy(true);
+    if(reset){state.posts=[];state.ids=new Set();state.cursor=null;state.loaded=false;if(status===current)render()}
+    if(status===current)message.textContent="読み込み中…";
+    try{
+      const q=new URLSearchParams({status,limit:"50"}); if(state.cursor)q.set("cursor",state.cursor);
+      const response=await fetch(`/api/admin/board/posts?${q}`,{method:"GET",headers:{accept:"application/json"},credentials:"same-origin",cache:"no-store"});
+      const data=await response.json();
+      if(!response.ok||data?.ok!==true||!Array.isArray(data.posts)||!(data.nextCursor===null||typeof data.nextCursor==="string")||data.posts.some(post=>!validPost(post,status)))throw new Error("LIST_FAILED");
+      for(const post of data.posts)if(!state.ids.has(post.id)){state.ids.add(post.id);state.posts.push(post)}
+      state.cursor=data.nextCursor; state.loaded=true; if(status===current)message.textContent=""; return true;
+    }catch{if(status===current)message.textContent="投稿一覧を読み込めませんでした。時間をおいて再読み込みしてください。";return false}
+    finally{setBusy(false);if(status===current)render()}
+  }
+  async function deletePost(post){
+    if(deleting)return;
+    const preview=Array.from(post.body).slice(0,60).join("")+(Array.from(post.body).length>60?"…":"");
+    if(!confirm(`次の投稿を削除済みにします。\n\n名前: ${post.name}\n本文: ${preview}\nID: ${post.id}\n\nよろしいですか？`))return;
+    deleting=true; setBusy(false); message.textContent="削除しています…"; render();
+    try{
+      const response=await fetch(`/api/admin/board/posts/${encodeURIComponent(post.id)}`,{method:"DELETE",headers:{accept:"application/json"},credentials:"same-origin",cache:"no-store"});
+      let data=null; try{data=await response.json()}catch{}
+      if(!response.ok||data?.ok!==true||data.id!==post.id){
+        if(response.status===404)throw new Error("NOT_FOUND");
+        if(response.status===403)throw new Error("FORBIDDEN");
+        throw new Error("DELETE_FAILED");
+      }
+      const state=states.active; state.posts=state.posts.filter(item=>item.id!==post.id); state.ids.delete(post.id);
+      states.deleted={posts:[],ids:new Set(),cursor:null,loaded:false};
+      message.textContent="投稿を削除済みにしました。";
+      deleting=false; setBusy(false); render();
+      await loadStatus("deleted",true);
+      current="active"; render(); message.textContent="投稿を削除済みにしました。";
+      return;
+    }catch(error){
+      if(error?.message==="NOT_FOUND")message.textContent="すでに削除済み、または見つかりません。";
+      else if(error?.message==="FORBIDDEN")message.textContent="権限を確認してください。";
+      else message.textContent="投稿を削除できませんでした。時間をおいて再度確認してください。";
+    }
+    deleting=false; setBusy(false); render();
+  }
+  for(const button of [activeTabButton,deletedTabButton])button.addEventListener("click",async()=>{if(loading||deleting)return;current=button.dataset.status;message.textContent="";render();if(!states[current].loaded)await loadStatus(current,true)});
+  reload.addEventListener("click",()=>loadStatus(current,true));
+  more.addEventListener("click",()=>loadStatus(current,false));
+  render(); void loadStatus("active",true);
+  return root;
 }
 
 /* ================================================================

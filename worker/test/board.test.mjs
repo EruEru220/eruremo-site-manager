@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
-import { BOARD_STAMPS, handleBoardList, handleBoardPost, handleBoardDelete, encodeBoardCursor, decodeBoardCursor } from "../src/lib/board.js";
+import { BOARD_STAMPS, handleBoardList, handleBoardAdminList, handleBoardPost, handleBoardDelete, encodeBoardCursor, decodeBoardCursor } from "../src/lib/board.js";
 import { createWorker } from "../src/index.js";
 
 const migration=fs.readFileSync(new URL("../migrations/0001_shared_board.sql",import.meta.url),"utf8");
@@ -56,6 +56,12 @@ test("cursorはcreated_atとUUIDだけを厳格に往復する",()=>{const c=enc
 test("GETはactiveだけを降順・30件初期・50件上限・cursor付きで返す",async()=>{const x=await fixture();try{for(let i=0;i<32;i++)await x.BOARD_DB.prepare("INSERT INTO board_posts VALUES(?,?,?,?,?,'active',NULL)").bind(`018f47a0-12ab-4def-8abc-${String(i).padStart(12,"0")}`,"n",`b${i}`,"☕",1000+i).run();await x.BOARD_DB.prepare("UPDATE board_posts SET status='deleted',deleted_at=2000 WHERE body='b31'").run();let r=await handleBoardList(new Request("https://eruremo.com/api/board/posts"),x.env);let j=await r.json();assert.equal(r.status,200);assert.equal(j.posts.length,30);assert.equal(j.posts[0].body,"b30");assert.ok(j.nextCursor);r=await handleBoardList(new Request(`https://eruremo.com/api/board/posts?limit=50&cursor=${encodeURIComponent(j.nextCursor)}`),x.env);j=await r.json();assert.equal(j.posts.length,1);for(const q of ["?limit=0","?limit=51","?cursor=bad","?x=1"])assert.equal((await handleBoardList(new Request("https://eruremo.com/api/board/posts"+q),x.env)).status,400)}finally{await x.mf.dispose()}});
 
 test("空一覧と同時刻UUID cursor境界は欠落・重複なし",async()=>{const x=await fixture();try{let r=await handleBoardList(new Request("https://eruremo.com/api/board/posts"),x.env);assert.deepEqual(await r.json(),{ok:true,posts:[],nextCursor:null});for(let i=0;i<3;i++)await x.BOARD_DB.prepare("INSERT INTO board_posts VALUES(?,?,?,?,?,'active',NULL)").bind(`018f47a0-12ab-4def-8abc-${String(i).padStart(12,"0")}`,"n",`same${i}`,"☕",1000).run();r=await handleBoardList(new Request("https://eruremo.com/api/board/posts?limit=2"),x.env);const a=await r.json();r=await handleBoardList(new Request(`https://eruremo.com/api/board/posts?limit=2&cursor=${encodeURIComponent(a.nextCursor)}`),x.env);const b=await r.json();assert.deepEqual([...a.posts,...b.posts].map(p=>p.id),["018f47a0-12ab-4def-8abc-000000000002","018f47a0-12ab-4def-8abc-000000000001","018f47a0-12ab-4def-8abc-000000000000"])}finally{await x.mf.dispose()}});
+
+test("ADMIN GETはactive/deletedを公開可能列だけで50件ずつ返す",async()=>{const x=await fixture();try{for(let i=0;i<3;i++)await x.BOARD_DB.prepare("INSERT INTO board_posts VALUES(?,?,?,?,?,'active',NULL)").bind(`018f47a0-12ab-4def-8abc-${String(i).padStart(12,"0")}`,`n${i}`,`b${i}`,"✦",1000+i).run();await x.BOARD_DB.prepare("UPDATE board_posts SET status='deleted',deleted_at=2000 WHERE body='b0'").run();let r=await handleBoardAdminList(new Request("https://admin.eruremo.com/api/admin/board/posts"),x.env);assert.equal(r.status,200);assert.equal(r.headers.get("cache-control"),"no-store");let j=await r.json();assert.equal(j.posts.length,2);assert.equal(j.nextCursor,null);assert.ok(j.posts.every(p=>p.status==="active"&&Object.keys(p).sort().join(",")==="body,created_at,deleted_at,id,name,stamp,status"));r=await handleBoardAdminList(new Request("https://admin.eruremo.com/api/admin/board/posts?status=deleted&limit=50"),x.env);j=await r.json();assert.equal(j.posts.length,1);assert.equal(j.posts[0].status,"deleted");assert.equal(j.posts[0].deleted_at,2000);assert.equal(/identity|hash|token|secret|email|sql/i.test(JSON.stringify(j)),false)}finally{await x.mf.dispose()}});
+
+test("ADMIN GETはqueryを厳格検証し同時刻UUID cursorで安定paginationする",async()=>{const x=await fixture();try{for(let i=0;i<3;i++)await x.BOARD_DB.prepare("INSERT INTO board_posts VALUES(?,?,?,?,?,'active',NULL)").bind(`018f47a0-12ab-4def-8abc-${String(i).padStart(12,"0")}`,"n",`same${i}`,"☕",1000).run();let r=await handleBoardAdminList(new Request("https://admin.eruremo.com/api/admin/board/posts?status=active&limit=1"),x.env),a=await r.json();assert.equal(a.posts.length,1);assert.ok(a.nextCursor);r=await handleBoardAdminList(new Request(`https://admin.eruremo.com/api/admin/board/posts?status=active&limit=50&cursor=${encodeURIComponent(a.nextCursor)}`),x.env);const b=await r.json();assert.deepEqual([...a.posts,...b.posts].map(p=>p.id),["018f47a0-12ab-4def-8abc-000000000002","018f47a0-12ab-4def-8abc-000000000001","018f47a0-12ab-4def-8abc-000000000000"]);assert.equal(b.nextCursor,null);for(const q of ["?limit=0","?limit=51","?limit=x","?status=other","?cursor=bad","?x=1"]){r=await handleBoardAdminList(new Request("https://admin.eruremo.com/api/admin/board/posts"+q),x.env);assert.equal(r.status,400,q)}}finally{await x.mf.dispose()}});
+
+test("ADMIN GETのD1例外は固定JSONで内部情報を漏らさない",async()=>{const env={BOARD_DB:{prepare(){throw new Error("private SQL stack sentinel")}}};const r=await handleBoardAdminList(new Request("https://admin.eruremo.com/api/admin/board/posts"),env);assert.equal(r.status,503);const text=await r.text();assert.equal(/private|SQL|stack|sentinel/.test(text),false)});
 
 test("POSTはTurnstile後に正規化しserver id/timeで保存する",async()=>{const x=await fixture();try{const r=await handleBoardPost(postRequest(valid),x.env,{fetch:okVerify,now:()=>1700000000000,randomUUID:()=>UUID});assert.equal(r.status,201);const j=await r.json();assert.deepEqual(j.post,{id:UUID,name:"テスト",body:"こんにちは",stamp:"✦",created_at:1700000000000});const row=await x.BOARD_DB.prepare("SELECT status FROM board_posts WHERE id=?").bind(UUID).first();assert.equal(row.status,"active")}finally{await x.mf.dispose()}});
 
@@ -163,6 +169,10 @@ test("production routingはPUBLIC掲示板GET/POSTと認証済みADMIN deleteだ
     assert.equal(r.status,404);
     r=await worker.fetch(new Request(`https://admin.eruremo.com/api/admin/board/posts/${UUID}`,{method:"DELETE",headers:{origin:"https://admin.eruremo.com"}}),env);
     assert.equal(r.status,200);
+    r=await worker.fetch(new Request("https://admin.eruremo.com/api/admin/board/posts"),env);
+    assert.equal(r.status,200);
+    r=await worker.fetch(new Request("https://eruremo.com/api/admin/board/posts"),env);
+    assert.equal(r.status,404);
     r=await worker.fetch(new Request("https://admin.eruremo.com/api/board/posts"),env);
     assert.equal(r.status,404);
     r=await worker.fetch(new Request("https://eruremo.com/api/health"),env);
@@ -175,6 +185,14 @@ test("ADMIN board deleteはAccess拒否時にD1へ到達しない",async()=>{
   const env={ENVIRONMENT:"production",PUBLIC_HOST:"eruremo.com",ADMIN_HOST:"admin.eruremo.com",BOARD_DB:db};
   const worker=createWorker({accessCheck:async()=>({ok:false})});
   const r=await worker.fetch(new Request(`https://admin.eruremo.com/api/admin/board/posts/${UUID}`,{method:"DELETE",headers:{origin:"https://admin.eruremo.com"}}),env);
+  assert.equal(r.status,403);
+});
+
+test("ADMIN board listはAccess拒否時にD1へ到達しない",async()=>{
+  const db={prepare(){throw new Error("D1 must not be touched")}};
+  const env={ENVIRONMENT:"production",PUBLIC_HOST:"eruremo.com",ADMIN_HOST:"admin.eruremo.com",BOARD_DB:db};
+  const worker=createWorker({accessCheck:async()=>({ok:false})});
+  const r=await worker.fetch(new Request("https://admin.eruremo.com/api/admin/board/posts"),env);
   assert.equal(r.status,403);
 });
 

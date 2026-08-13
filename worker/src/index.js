@@ -24,7 +24,7 @@ import { handleMediaRead } from "./lib/mediaRead.js";
 import { handleMediaList } from "./lib/mediaList.js";
 import { handleMediaDelete } from "./lib/mediaDelete.js";
 import { checkAccess } from "./lib/accessJwt.js";
-import { handleBoardList, handleBoardPost, handleBoardDelete } from "./lib/board.js";
+import { handleBoardList, handleBoardAdminList, handleBoardPost, handleBoardDelete } from "./lib/board.js";
 
 /** Only this exact environment bypasses Cloudflare Access. */
 export function isLocalEnv(env){
@@ -136,6 +136,10 @@ async function serveApi(request, path, env, context = {}){
       if (request.method === "GET") return handleBoardList(request, env);
       if (request.method === "POST") return await handleBoardPost(request, env, context.boardDependencies);
       return jsonError("NOT_FOUND");
+    }
+    if (path === "/api/admin/board/posts") {
+      if (context.apiRole === "public") return jsonError("NOT_FOUND");
+      return handleBoardAdminList(request, env);
     }
     const boardDelete = /^\/api\/admin\/board\/posts\/([^/]+)$/.exec(path);
     if (boardDelete) {
